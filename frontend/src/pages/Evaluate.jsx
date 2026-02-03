@@ -78,7 +78,7 @@ function Evaluate() {
   // Form state
   const [modelAnswerFile, setModelAnswerFile] = useState(null);
   const [studentAnswerFile, setStudentAnswerFile] = useState(null);
-  const [useTextInput, setUseTextInput] = useState(false);
+  const [useTextInput, setUseTextInput] = useState(true);  // Default to text input for free hosting
   const [modelAnswerText, setModelAnswerText] = useState('');
   const [studentAnswerText, setStudentAnswerText] = useState('');
   const [questionType, setQuestionType] = useState('descriptive');
@@ -485,6 +485,12 @@ function Evaluate() {
                 }
                 label="Use text input instead of file upload"
               />
+              {!useTextInput && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  <strong>Note:</strong> File upload with OCR requires significant server resources. 
+                  If you experience errors, please use <strong>Text Input mode</strong> instead.
+                </Alert>
+              )}
             </Box>
 
             {useTextInput ? (
