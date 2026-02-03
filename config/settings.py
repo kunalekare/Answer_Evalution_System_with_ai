@@ -34,6 +34,8 @@ class Settings(BaseSettings):
         "https://*.vercel.app",
         "https://*.azurestaticapps.net",  # Azure Static Web Apps
         "https://*.azurewebsites.net",     # Azure App Service
+        "https://*.onrender.com",          # Render
+        "https://assessiq-frontend.onrender.com",  # Your Render frontend
         # Add your custom domain here:
         # "https://yourdomain.com",
     ]
