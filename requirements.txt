@@ -1,0 +1,66 @@
+# AssessIQ - Python Dependencies
+# ================================
+# Install with: pip install -r requirements.txt
+
+# ========== Core Framework ==========
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# ========== Database ==========
+sqlalchemy==2.0.25
+alembic==1.13.1  # Database migrations
+
+# Optional: PostgreSQL support
+# psycopg2-binary==2.9.9
+
+# Optional: MongoDB support
+# pymongo==4.6.1
+# motor==3.3.2
+
+# ========== OCR & Image Processing ==========
+easyocr==1.7.1
+opencv-python==4.9.0.80
+pillow==10.2.0
+pdf2image==1.17.0  # PDF processing
+
+# Optional: Tesseract OCR (requires separate Tesseract installation)
+# pytesseract==0.3.10
+
+# Optional: PaddleOCR (heavier but more accurate)
+# paddlepaddle==2.6.0
+# paddleocr==2.7.0
+
+# ========== NLP Processing ==========
+spacy==3.7.4
+nltk==3.8.1
+
+# ========== Semantic Analysis ==========
+sentence-transformers==2.2.2
+torch==2.1.2  # PyTorch for transformers
+transformers==4.37.0
+huggingface-hub==0.20.3
+
+# ========== Scientific Computing ==========
+numpy==1.26.3
+scipy==1.12.0
+scikit-learn==1.4.0
+scikit-image==0.22.0  # For SSIM
+
+# ========== Utilities ==========
+python-dotenv==1.0.0
+aiofiles==23.2.1
+httpx==0.26.0
+tenacity==8.2.3  # Retry logic
+
+# ========== Development ==========
+pytest==7.4.4
+pytest-asyncio==0.23.3
+black==24.1.0  # Code formatting
+flake8==7.0.0  # Linting
+
+# ========== Production (Optional) ==========
+# gunicorn==21.2.0
+# redis==5.0.1  # Caching

@@ -1,0 +1,100 @@
+# ==================== Python ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# ==================== Environment Variables ====================
+.env
+.env.local
+.env.production
+*.env
+
+# ==================== IDE ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ==================== Logs ====================
+logs/
+*.log
+
+# ==================== Database ====================
+*.db
+*.sqlite3
+assessiq.db
+
+# ==================== Uploads & Temp (User Data) ====================
+uploads/student_answers/*
+uploads/model_answers/*
+uploads/processed/*
+uploads/results/*
+uploads/evaluations/*
+temp/*
+!uploads/.gitkeep
+!uploads/student_answers/.gitkeep
+!uploads/model_answers/.gitkeep
+!uploads/processed/.gitkeep
+!uploads/results/.gitkeep
+!uploads/evaluations/.gitkeep
+!temp/.gitkeep
+
+# ==================== Node.js (Frontend) ====================
+frontend/node_modules/
+frontend/.pnp
+frontend/.pnp.js
+frontend/coverage/
+frontend/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==================== OS Files ====================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ==================== ML Models (Optional - Large Files) ====================
+# Uncomment if you don't want to track model files
+# *.pt
+# *.pth
+# *.bin
+# *.onnx
+
+# ==================== Misc ====================
+*.bak
+*.tmp
+*.temp
+.cache/

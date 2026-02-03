@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+
+**pycache**/
+_.py[cod]
+_$py.class
+
+# Virtual environments
+
+venv/
+env/
+.env
+
+# IDE
+
+.vscode/
+.idea/
+
+# Logs
+
+logs/
+\*.log
+
+# Uploads (don't include user data in image)
+
+uploads/
+temp/
+
+# Database
+
+_.db
+_.sqlite3
+
+# Node modules (frontend)
+
+frontend/node_modules/
+frontend/build/
+
+# Git
+
+.git/
+.gitignore
+
+# Documentation
+
+\*.md
+!README.md
+
+# Tests
+
+tests/
+**tests**/
+\*.test.py
