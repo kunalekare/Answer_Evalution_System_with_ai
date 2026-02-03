@@ -53,22 +53,9 @@ async def lifespan(app: FastAPI):
     setup_directories()
     logger.info("[OK] Directories initialized")
     
-    # Pre-load ML models for faster inference
-    try:
-        from api.services.semantic_service import SemanticAnalyzer
-        from api.services.nlp_service import NLPPreprocessor
-        
-        # Initialize models (they will be cached)
-        logger.info("[LOADING] Loading NLP models...")
-        _ = NLPPreprocessor()
-        logger.info("[OK] NLP models loaded")
-        
-        logger.info("[LOADING] Loading Semantic Analysis models...")
-        _ = SemanticAnalyzer()
-        logger.info("[OK] Semantic models loaded")
-        
-    except Exception as e:
-        logger.warning(f"[WARN] Could not pre-load models: {e}")
+    # NOTE: Models are loaded lazily on first request to reduce startup memory
+    # This helps with free-tier hosting (512MB RAM limit)
+    logger.info("[INFO] ML models will be loaded on first request (lazy loading)")
     
     logger.info(f"[SERVER] API running at http://{settings.API_HOST}:{settings.API_PORT}")
     logger.info("=" * 60)
