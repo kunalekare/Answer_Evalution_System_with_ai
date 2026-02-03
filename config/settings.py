@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     OCR_ENGINE: str = "easyocr"  # Options: "easyocr", "tesseract", "paddleocr"
     OCR_LANGUAGES: list = ["en"]  # Languages for OCR
     TESSERACT_PATH: Optional[str] = None  # Path to tesseract executable
+    LOW_MEMORY_MODE: bool = True  # Enable for free hosting (512MB RAM) - uses lighter processing
     
     # ========== NLP Settings ==========
     SPACY_MODEL: str = "en_core_web_sm"

@@ -84,8 +84,21 @@ class SemanticAnalyzer:
         from config.settings import settings
         
         self.model_name = model_name or settings.SENTENCE_TRANSFORMER_MODEL
+        self.low_memory_mode = getattr(settings, 'LOW_MEMORY_MODE', False)
         self._model = None
-        self._init_model()
+        self._model_initialized = False
+        
+        # Only load model immediately if not in low memory mode
+        if not self.low_memory_mode:
+            self._init_model()
+        else:
+            logger.info("Low memory mode: Semantic model will be loaded on first use")
+    
+    def _ensure_model_initialized(self):
+        """Ensure the model is initialized (for lazy loading)."""
+        if not self._model_initialized:
+            self._init_model()
+            self._model_initialized = True
     
     def _init_model(self):
         """Initialize the Sentence Transformer model."""
@@ -121,6 +134,9 @@ class SemanticAnalyzer:
             - Single text: shape (embedding_dim,)
             - Multiple texts: shape (n_texts, embedding_dim)
         """
+        # Ensure model is loaded (for lazy loading in low memory mode)
+        self._ensure_model_initialized()
+        
         if not text:
             raise ValueError("Text cannot be empty")
         

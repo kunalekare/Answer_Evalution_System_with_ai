@@ -322,13 +322,26 @@ class OCRService:
         """
         from config.settings import settings
         
+        self.low_memory_mode = getattr(settings, 'LOW_MEMORY_MODE', False)
         self.engine_name = engine or settings.OCR_ENGINE
         self.languages = languages or settings.OCR_LANGUAGES
         self.preprocessor = ImagePreprocessor()
         
-        # Initialize the selected engine
+        # Initialize the selected engine (lazy load in low memory mode)
         self._engine = None
-        self._init_engine()
+        self._engine_initialized = False
+        
+        # Only initialize engine immediately if not in low memory mode
+        if not self.low_memory_mode:
+            self._init_engine()
+        else:
+            logger.info("Low memory mode: OCR engine will be initialized on first use")
+    
+    def _ensure_engine_initialized(self):
+        """Ensure the OCR engine is initialized (for lazy loading)."""
+        if not self._engine_initialized:
+            self._init_engine()
+            self._engine_initialized = True
     
     def _init_engine(self):
         """Initialize the selected OCR engine."""
@@ -407,6 +420,9 @@ class OCRService:
         Returns:
             Extracted text as string, or list of dicts with details if detail=True
         """
+        # Ensure engine is initialized (for lazy loading in low memory mode)
+        self._ensure_engine_initialized()
+        
         logger.info(f"Extracting text from: {image_path}")
         
         # Validate file exists
