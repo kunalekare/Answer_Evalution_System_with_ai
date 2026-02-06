@@ -453,7 +453,7 @@ _Detailed results with animated score visualization_
 
 | Name        | Role      | Contact             |
 | ----------- | --------- | ------------------- |
-| [Kunal Ekare] | Developer | [email@example.com] |
+| [Kunal Ekare] | Developer | [kunalekare02@gmail.com] |
 
 ---
 
