@@ -27,6 +27,7 @@ import Results from "./pages/Results";
 import History from "./pages/History";
 import StudentDashboard from "./pages/StudentDashboard";
 import ChatBot from "./pages/ChatBot";
+import ManualChecking from "./pages/ManualChecking";
 
 // Components
 import Layout from "./components/Layout";
@@ -204,6 +205,16 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={[ROLES.TEACHER, ROLES.ADMIN]}>
             <Layout><Evaluate /></Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      {/* Manual Checking - Teachers and Admins only */}
+      <Route 
+        path="/manual-checking" 
+        element={
+          <ProtectedRoute allowedRoles={[ROLES.TEACHER, ROLES.ADMIN]}>
+            <Layout><ManualChecking /></Layout>
           </ProtectedRoute>
         } 
       />

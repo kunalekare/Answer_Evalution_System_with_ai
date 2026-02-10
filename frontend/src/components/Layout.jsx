@@ -45,6 +45,7 @@ import {
   Home as HomeIcon,
   Grade as GradeIcon,
   SmartToy as ChatBotIcon,
+  FactCheck as ManualCheckIcon,
 } from '@mui/icons-material';
 import { useAuth, ROLES } from '../context/AuthContext';
 
@@ -65,6 +66,7 @@ const getMenuItems = (role) => {
     baseItems.push(
       { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
       { text: 'Evaluate Answer', icon: <AssignmentIcon />, path: '/evaluate' },
+      { text: 'Manual Checking', icon: <ManualCheckIcon />, path: '/manual-checking' },
       { text: 'AI Assistant', icon: <ChatBotIcon />, path: '/chatbot' },
       { text: 'History', icon: <HistoryIcon />, path: '/history' }
     );
