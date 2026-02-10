@@ -8,9 +8,11 @@
  * - Center Panel: Answer Sheet Viewer with zoom and pagination
  * - Right Panel: Question-Wise Evaluation Panel
  * - Bottom Action Bar: Control buttons and status indicators
+ * - PDF Support: View and annotate PDF files
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
 import {
   Box,
   Paper,
@@ -121,8 +123,14 @@ const sampleQuestions = [
 function ManualChecking() {
   const navigate = useNavigate();
   const canvasRef = useRef(null);
+  const imageRef = useRef(null);
   const containerRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Set up PDF.js worker
+  useEffect(() => {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+  }, []);
 
   // State management
   const [currentTool, setCurrentTool] = useState(TOOLS.SELECT);
@@ -148,41 +156,82 @@ function ManualChecking() {
   const [commentPosition, setCommentPosition] = useState({ x: 0, y: 0 });
   const [colorPickerAnchor, setColorPickerAnchor] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState({ open: false, type: '', title: '', message: '' });
+  const [canvasDimensions, setCanvasDimensions] = useState({ width: 800, height: 1000 });
+  const [pageAnnotations, setPageAnnotations] = useState({}); // Store annotations per page
 
   // Calculate total score
   const totalMaxMarks = questions.reduce((sum, q) => sum + q.maxMarks, 0);
   const totalAwardedMarks = questions.reduce((sum, q) => sum + (q.awardedMarks || 0), 0);
 
-  // Handle file upload
-  const handleFileUpload = useCallback((event) => {
+  // Convert PDF page to image
+  const pdfPageToImage = async (pdfDoc, pageNum) => {
+    const page = await pdfDoc.getPage(pageNum);
+    const scale = 2; // Higher scale for better quality
+    const viewport = page.getViewport({ scale });
+    
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    
+    await page.render({
+      canvasContext: context,
+      viewport: viewport,
+    }).promise;
+    
+    return canvas.toDataURL('image/png');
+  };
+
+  // Handle file upload - supports both images and PDFs
+  const handleFileUpload = useCallback(async (event) => {
     const files = Array.from(event.target.files);
     if (files.length === 0) return;
 
     setLoading(true);
-    const imagePromises = files.map((file) => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    });
-
-    Promise.all(imagePromises)
-      .then((images) => {
-        setUploadedImages(images);
-        setCurrentImage(images[0]);
-        setTotalPages(images.length);
+    
+    try {
+      const allImages = [];
+      
+      for (const file of files) {
+        if (file.type === 'application/pdf') {
+          // Handle PDF files
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          const numPages = pdfDoc.numPages;
+          
+          for (let i = 1; i <= numPages; i++) {
+            const pageImage = await pdfPageToImage(pdfDoc, i);
+            allImages.push(pageImage);
+          }
+          
+          showSnackbar(`PDF loaded: ${numPages} pages extracted`, 'success');
+        } else {
+          // Handle image files
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          allImages.push(dataUrl);
+        }
+      }
+      
+      if (allImages.length > 0) {
+        setUploadedImages(allImages);
+        setCurrentImage(allImages[0]);
+        setTotalPages(allImages.length);
         setCurrentPage(1);
         setVisitedPages(new Set([1]));
-        setLoading(false);
-        showSnackbar('Answer sheets uploaded successfully!', 'success');
-      })
-      .catch((error) => {
-        console.error('Error loading images:', error);
-        setLoading(false);
-        showSnackbar('Error loading images', 'error');
-      });
+        setPageAnnotations({}); // Reset annotations for new upload
+        showSnackbar(`${allImages.length} page(s) uploaded successfully!`, 'success');
+      }
+    } catch (error) {
+      console.error('Error loading files:', error);
+      showSnackbar('Error loading files: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   // Show snackbar notification
@@ -190,14 +239,49 @@ function ManualChecking() {
     setSnackbar({ open: true, message, severity });
   };
 
+  // Save current page annotations before switching
+  const saveCurrentPageAnnotations = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const dataUrl = canvas.toDataURL();
+      setPageAnnotations(prev => ({
+        ...prev,
+        [currentPage]: dataUrl
+      }));
+    }
+  }, [currentPage]);
+
+  // Load annotations for a page
+  const loadPageAnnotations = useCallback((page) => {
+    const canvas = canvasRef.current;
+    if (canvas && pageAnnotations[page]) {
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+      };
+      img.src = pageAnnotations[page];
+    } else if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }, [pageAnnotations]);
+
   // Handle page navigation
   const handlePageChange = (page) => {
     if (page >= 1 && page <= totalPages) {
+      // Save current page annotations before switching
+      saveCurrentPageAnnotations();
+      
       setCurrentPage(page);
       setVisitedPages((prev) => new Set([...prev, page]));
       if (uploadedImages.length > 0) {
         setCurrentImage(uploadedImages[page - 1]);
       }
+      
+      // Load annotations for the new page after a short delay
+      setTimeout(() => loadPageAnnotations(page), 100);
     }
   };
 
@@ -310,6 +394,32 @@ function ManualChecking() {
     }
   };
 
+  // Touch event handlers for mobile/tablet support
+  const handleTouchStart = (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const mouseEvent = new MouseEvent('mousedown', {
+      clientX: touch.clientX,
+      clientY: touch.clientY
+    });
+    startDrawing(mouseEvent);
+  };
+
+  const handleTouchMove = (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const mouseEvent = new MouseEvent('mousemove', {
+      clientX: touch.clientX,
+      clientY: touch.clientY
+    });
+    draw(mouseEvent);
+  };
+
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    stopDrawing();
+  };
+
   // Add tick/cross/partial symbols
   const addSymbol = (x, y) => {
     const canvas = canvasRef.current;
@@ -388,15 +498,21 @@ function ManualChecking() {
     setCommentText('');
   };
 
-  // Clear all annotations
+  // Clear annotations for current page
   const handleClearAnnotations = () => {
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
-    setAnnotations([]);
-    showSnackbar('All annotations cleared', 'info');
+    // Clear annotations for current page only
+    setAnnotations(prev => prev.filter(a => a.page !== currentPage));
+    setPageAnnotations(prev => {
+      const newAnnotations = { ...prev };
+      delete newAnnotations[currentPage];
+      return newAnnotations;
+    });
+    showSnackbar(`Annotations cleared for page ${currentPage}`, 'info');
   };
 
   // Undo last annotation
@@ -655,7 +771,7 @@ function ManualChecking() {
           type="file"
           ref={fileInputRef}
           onChange={handleFileUpload}
-          accept="image/*"
+          accept="image/*,.pdf,application/pdf"
           multiple
           style={{ display: 'none' }}
         />
@@ -739,19 +855,31 @@ function ManualChecking() {
               }}
             >
               <img
+                ref={imageRef}
                 src={currentImage}
                 alt={`Answer sheet page ${currentPage}`}
+                onLoad={(e) => {
+                  // Update canvas dimensions to match image
+                  const img = e.target;
+                  setCanvasDimensions({
+                    width: img.naturalWidth,
+                    height: img.naturalHeight
+                  });
+                  // Load annotations for current page after image loads
+                  setTimeout(() => loadPageAnnotations(currentPage), 50);
+                }}
                 style={{
+                  display: 'block',
                   maxWidth: '100%',
-                  maxHeight: '100%',
+                  maxHeight: 'calc(100vh - 200px)',
                   borderRadius: 8,
                   boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
                 }}
               />
               <canvas
                 ref={canvasRef}
-                width={800}
-                height={1000}
+                width={canvasDimensions.width}
+                height={canvasDimensions.height}
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -760,11 +888,16 @@ function ManualChecking() {
                   height: '100%',
                   cursor: currentTool === TOOLS.SELECT ? 'default' : 'crosshair',
                   opacity: showAnnotations ? 1 : 0,
+                  pointerEvents: showAnnotations ? 'auto' : 'none',
+                  touchAction: 'none',
                 }}
                 onMouseDown={startDrawing}
                 onMouseMove={draw}
                 onMouseUp={stopDrawing}
                 onMouseLeave={stopDrawing}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
               />
             </Box>
           ) : (
