@@ -96,6 +96,7 @@ const TOOLS = {
   COMMENT: 'comment',
   TEXT: 'text',
   SELECT: 'select',
+  NUMBER: 'number',
 };
 
 // Color options for annotations
@@ -127,13 +128,15 @@ function ManualChecking() {
   const containerRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Set up PDF.js worker
+  // Set up PDF.js worker - use unpkg CDN which has the correct version
   useEffect(() => {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    // Use unpkg CDN which mirrors npm packages directly
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
   }, []);
 
   // State management
   const [currentTool, setCurrentTool] = useState(TOOLS.SELECT);
+  const [currentNumber, setCurrentNumber] = useState(null); // For number annotation
   const [currentColor, setCurrentColor] = useState(COLORS.GREEN);
   const [brushSize, setBrushSize] = useState(3);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -346,6 +349,11 @@ function ManualChecking() {
       return;
     }
 
+    if (currentTool === TOOLS.NUMBER && currentNumber !== null) {
+      addNumberAnnotation(x, y);
+      return;
+    }
+
     setIsDrawing(true);
     const ctx = canvas.getContext('2d');
     ctx.beginPath();
@@ -464,6 +472,43 @@ function ManualChecking() {
     ctx.restore();
     
     setAnnotations(prev => [...prev, { type: currentTool, x, y, page: currentPage }]);
+  };
+
+  // Add number annotation on canvas
+  const addNumberAnnotation = (x, y) => {
+    const canvas = canvasRef.current;
+    if (!canvas || currentNumber === null) return;
+
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // Draw circle background
+    const radius = 16;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#3b82f6';
+    ctx.fill();
+    ctx.strokeStyle = '#1e40af';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    // Draw number text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(currentNumber.toString(), x, y);
+    
+    ctx.restore();
+    
+    setAnnotations(prev => [...prev, { 
+      type: TOOLS.NUMBER, 
+      x, 
+      y, 
+      value: currentNumber,
+      page: currentPage 
+    }]);
   };
 
   // Add comment annotation
@@ -613,31 +658,42 @@ function ManualChecking() {
     </Tooltip>
   );
 
-  // Number button for quick scores
-  const ScoreButton = ({ value, label, color, onClick }) => (
-    <Box
-      onClick={onClick}
-      sx={{
-        width: 36,
-        height: 36,
-        borderRadius: '50%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        bgcolor: color,
-        color: '#fff',
-        fontWeight: 'bold',
-        cursor: 'pointer',
-        fontSize: '0.85rem',
-        transition: 'transform 0.2s',
-        '&:hover': {
-          transform: 'scale(1.1)',
-        },
-      }}
-    >
-      {label}
-    </Box>
-  );
+  // Number button for quick scores - updated to set NUMBER tool
+  const ScoreButton = ({ value, label, color }) => {
+    const isSelected = currentTool === TOOLS.NUMBER && currentNumber === value;
+    return (
+      <Tooltip title={`Mark ${label}`} placement="top" arrow>
+        <Box
+          onClick={() => {
+            setCurrentTool(TOOLS.NUMBER);
+            setCurrentNumber(value);
+          }}
+          sx={{
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: isSelected ? '#fff' : color,
+            color: isSelected ? color : '#fff',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            fontSize: '0.75rem',
+            transition: 'all 0.2s',
+            border: isSelected ? `2px solid ${color}` : '2px solid transparent',
+            boxShadow: isSelected ? '0 0 8px rgba(59, 130, 246, 0.5)' : 'none',
+            '&:hover': {
+              transform: 'scale(1.1)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            },
+          }}
+        >
+          {label}
+        </Box>
+      </Tooltip>
+    );
+  };
 
   return (
     <Box
@@ -653,119 +709,284 @@ function ManualChecking() {
       <Paper
         elevation={3}
         sx={{
-          width: 70,
+          width: 100,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          py: 2,
-          gap: 1,
+          py: 1.5,
+          gap: 0.5,
           borderRadius: 0,
           bgcolor: '#1e293b',
+          overflowY: 'auto',
         }}
       >
         <Typography
           variant="caption"
           sx={{
             color: '#94a3b8',
-            mb: 1,
-            writingMode: 'vertical-rl',
-            textOrientation: 'mixed',
-            transform: 'rotate(180deg)',
+            mb: 0.5,
+            fontSize: '0.65rem',
             letterSpacing: 1,
+            textTransform: 'uppercase',
           }}
         >
-          Annotation
+          Numbers
         </Typography>
 
-        {/* Score buttons */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 1 }}>
-          <ScoreButton value={0} label="0" color="#374151" onClick={() => {}} />
-          <ScoreButton value={0.25} label="¼" color="#374151" onClick={() => {}} />
-          <ScoreButton value={0.5} label="½" color="#374151" onClick={() => {}} />
-          <ScoreButton value={1} label="1" color="#374151" onClick={() => {}} />
-          <ScoreButton value={2} label="2" color="#10b981" onClick={() => {}} />
-          <ScoreButton value={3} label="3" color="#10b981" onClick={() => {}} />
-          <ScoreButton value={4} label="4" color="#10b981" onClick={() => {}} />
-          <ScoreButton value={5} label="5" color="#10b981" onClick={() => {}} />
-          <ScoreButton value={6} label="6" color="#10b981" onClick={() => {}} />
-          <ScoreButton value={7} label="7" color="#3b82f6" onClick={() => {}} />
-          <ScoreButton value={8} label="8" color="#3b82f6" onClick={() => {}} />
-          <ScoreButton value={9} label="9" color="#3b82f6" onClick={() => {}} />
-          <ScoreButton value={10} label="10" color="#3b82f6" onClick={() => {}} />
+        {/* Score buttons in 2-column grid */}
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(2, 1fr)', 
+          gap: 0.5, 
+          mb: 1,
+          px: 0.5,
+        }}>
+          <ScoreButton value={0} label="0" color="#6b7280" />
+          <ScoreButton value={0.25} label="¼" color="#6b7280" />
+          <ScoreButton value={0.5} label="½" color="#6b7280" />
+          <ScoreButton value={1} label="1" color="#10b981" />
+          <ScoreButton value={2} label="2" color="#10b981" />
+          <ScoreButton value={3} label="3" color="#10b981" />
+          <ScoreButton value={4} label="4" color="#10b981" />
+          <ScoreButton value={5} label="5" color="#10b981" />
+          <ScoreButton value={6} label="6" color="#3b82f6" />
+          <ScoreButton value={7} label="7" color="#3b82f6" />
+          <ScoreButton value={8} label="8" color="#3b82f6" />
+          <ScoreButton value={9} label="9" color="#3b82f6" />
+          <ScoreButton value={10} label="10" color="#8b5cf6" />
         </Box>
 
-        <Divider sx={{ width: '70%', bgcolor: '#475569' }} />
+        <Divider sx={{ width: '80%', bgcolor: '#475569' }} />
 
-        {/* Tick/Cross tools */}
-        <ToolButton tool={TOOLS.TICK} icon={<CheckIcon />} label="Tick (Correct)" color={COLORS.GREEN} />
-        <ToolButton tool={TOOLS.CROSS} icon={<CloseIcon />} label="Cross (Wrong)" color={COLORS.RED} />
+        <Typography
+          variant="caption"
+          sx={{
+            color: '#94a3b8',
+            mt: 0.5,
+            fontSize: '0.65rem',
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+          }}
+        >
+          Tools
+        </Typography>
 
-        <Divider sx={{ width: '70%', bgcolor: '#475569' }} />
+        {/* Small tools in 2-column grid */}
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(2, 1fr)', 
+          gap: 0.5,
+          px: 0.5,
+        }}>
+          {/* Tick/Cross tools */}
+          <Tooltip title="Tick (Correct)" placement="top" arrow>
+            <IconButton
+              onClick={() => { setCurrentTool(TOOLS.TICK); setCurrentNumber(null); }}
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 1,
+                bgcolor: currentTool === TOOLS.TICK ? alpha(COLORS.GREEN, 0.3) : 'transparent',
+                border: currentTool === TOOLS.TICK ? `2px solid ${COLORS.GREEN}` : '2px solid transparent',
+                color: COLORS.GREEN,
+                '&:hover': { bgcolor: alpha(COLORS.GREEN, 0.2) },
+              }}
+            >
+              <CheckIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Cross (Wrong)" placement="top" arrow>
+            <IconButton
+              onClick={() => { setCurrentTool(TOOLS.CROSS); setCurrentNumber(null); }}
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 1,
+                bgcolor: currentTool === TOOLS.CROSS ? alpha(COLORS.RED, 0.3) : 'transparent',
+                border: currentTool === TOOLS.CROSS ? `2px solid ${COLORS.RED}` : '2px solid transparent',
+                color: COLORS.RED,
+                '&:hover': { bgcolor: alpha(COLORS.RED, 0.2) },
+              }}
+            >
+              <CloseIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
 
-        {/* Show/Hide annotations */}
-        <Tooltip title={showAnnotations ? "Hide Annotations" : "Show Annotations"} placement="right">
-          <IconButton
-            onClick={() => setShowAnnotations(!showAnnotations)}
-            sx={{ color: showAnnotations ? '#22c55e' : '#94a3b8' }}
-          >
-            {showAnnotations ? <VisibilityIcon /> : <VisibilityOffIcon />}
-          </IconButton>
-        </Tooltip>
+          {/* Pen/Eraser */}
+          <Tooltip title="Pen Tool" placement="top" arrow>
+            <IconButton
+              onClick={() => { setCurrentTool(TOOLS.PEN); setCurrentNumber(null); }}
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 1,
+                bgcolor: currentTool === TOOLS.PEN ? alpha('#94a3b8', 0.3) : 'transparent',
+                border: currentTool === TOOLS.PEN ? '2px solid #94a3b8' : '2px solid transparent',
+                color: '#94a3b8',
+                '&:hover': { bgcolor: alpha('#94a3b8', 0.2) },
+              }}
+            >
+              <PenIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Eraser" placement="top" arrow>
+            <IconButton
+              onClick={() => { setCurrentTool(TOOLS.ERASER); setCurrentNumber(null); }}
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 1,
+                bgcolor: currentTool === TOOLS.ERASER ? alpha('#94a3b8', 0.3) : 'transparent',
+                border: currentTool === TOOLS.ERASER ? '2px solid #94a3b8' : '2px solid transparent',
+                color: '#94a3b8',
+                '&:hover': { bgcolor: alpha('#94a3b8', 0.2) },
+              }}
+            >
+              <EraserIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
 
-        <Tooltip title="Clear Annotations" placement="right">
-          <IconButton onClick={() => setConfirmDialog({ open: true, type: 'clear', title: 'Clear Annotations', message: 'Clear all annotations on this page?' })} sx={{ color: '#94a3b8' }}>
-            <RefreshIcon />
-          </IconButton>
-        </Tooltip>
+          {/* Highlight/Underline */}
+          <Tooltip title="Highlight" placement="top" arrow>
+            <IconButton
+              onClick={() => { setCurrentTool(TOOLS.HIGHLIGHT); setCurrentNumber(null); }}
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 1,
+                bgcolor: currentTool === TOOLS.HIGHLIGHT ? alpha(COLORS.YELLOW, 0.3) : 'transparent',
+                border: currentTool === TOOLS.HIGHLIGHT ? `2px solid ${COLORS.YELLOW}` : '2px solid transparent',
+                color: COLORS.YELLOW,
+                '&:hover': { bgcolor: alpha(COLORS.YELLOW, 0.2) },
+              }}
+            >
+              <HighlightIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Comment" placement="top" arrow>
+            <IconButton
+              onClick={() => { setCurrentTool(TOOLS.COMMENT); setCurrentNumber(null); }}
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 1,
+                bgcolor: currentTool === TOOLS.COMMENT ? alpha(COLORS.BLUE, 0.3) : 'transparent',
+                border: currentTool === TOOLS.COMMENT ? `2px solid ${COLORS.BLUE}` : '2px solid transparent',
+                color: COLORS.BLUE,
+                '&:hover': { bgcolor: alpha(COLORS.BLUE, 0.2) },
+              }}
+            >
+              <CommentIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
 
-        <Divider sx={{ width: '70%', bgcolor: '#475569' }} />
+        <Divider sx={{ width: '80%', bgcolor: '#475569', my: 0.5 }} />
 
-        {/* Drawing tools */}
-        <ToolButton tool={TOOLS.PEN} icon={<PenIcon />} label="Pen Tool" color={COLORS.BLACK} />
-        <ToolButton tool={TOOLS.ERASER} icon={<EraserIcon />} label="Eraser" color="#94a3b8" />
-
-        <Divider sx={{ width: '70%', bgcolor: '#475569' }} />
-
-        {/* Highlight/Underline */}
-        <ToolButton tool={TOOLS.UNDERLINE} icon={<UnderlineIcon />} label="Underline" color={COLORS.RED} />
-        <ToolButton tool={TOOLS.HIGHLIGHT} icon={<HighlightIcon />} label="Highlight" color={COLORS.YELLOW} />
-        <ToolButton tool={TOOLS.COMMENT} icon={<CommentIcon />} label="Add Comment" color={COLORS.BLUE} />
+        {/* Quick actions row */}
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(2, 1fr)', 
+          gap: 0.5,
+          px: 0.5,
+        }}>
+          <Tooltip title={showAnnotations ? "Hide" : "Show"} placement="top">
+            <IconButton
+              onClick={() => setShowAnnotations(!showAnnotations)}
+              sx={{ 
+                width: 36, 
+                height: 36,
+                borderRadius: 1,
+                color: showAnnotations ? '#22c55e' : '#94a3b8',
+                '&:hover': { bgcolor: alpha('#94a3b8', 0.2) },
+              }}
+            >
+              {showAnnotations ? <VisibilityIcon sx={{ fontSize: 18 }} /> : <VisibilityOffIcon sx={{ fontSize: 18 }} />}
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Undo" placement="top">
+            <IconButton 
+              onClick={handleUndo} 
+              sx={{ 
+                width: 36, 
+                height: 36,
+                borderRadius: 1,
+                color: '#94a3b8',
+                '&:hover': { bgcolor: alpha('#94a3b8', 0.2) },
+              }}
+            >
+              <UndoIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Clear Page" placement="top">
+            <IconButton 
+              onClick={() => setConfirmDialog({ open: true, type: 'clear', title: 'Clear Annotations', message: 'Clear all annotations on this page?' })} 
+              sx={{ 
+                width: 36, 
+                height: 36,
+                borderRadius: 1,
+                color: '#f97316',
+                '&:hover': { bgcolor: alpha('#f97316', 0.2) },
+              }}
+            >
+              <RefreshIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete All" placement="top">
+            <IconButton 
+              onClick={() => setConfirmDialog({ open: true, type: 'clear', title: 'Clear All', message: 'Delete all annotations?' })} 
+              sx={{ 
+                width: 36, 
+                height: 36,
+                borderRadius: 1,
+                color: '#ef4444',
+                '&:hover': { bgcolor: alpha('#ef4444', 0.2) },
+              }}
+            >
+              <DeleteIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
 
         <Box sx={{ flexGrow: 1 }} />
 
-        {/* Help and additional tools */}
-        <Tooltip title="Help" placement="right">
-          <IconButton sx={{ color: '#94a3b8' }}>
-            <HelpIcon />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Undo" placement="right">
-          <IconButton onClick={handleUndo} sx={{ color: '#94a3b8' }}>
-            <UndoIcon />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Delete" placement="right">
-          <IconButton onClick={() => setConfirmDialog({ open: true, type: 'clear', title: 'Clear All', message: 'Delete all annotations?' })} sx={{ color: '#ef4444' }}>
-            <DeleteIcon />
-          </IconButton>
-        </Tooltip>
-
-        <Divider sx={{ width: '70%', bgcolor: '#475569', my: 1 }} />
+        <Divider sx={{ width: '80%', bgcolor: '#475569', my: 0.5 }} />
 
         {/* File operations */}
-        <Tooltip title="Upload Answer Sheet" placement="right">
-          <IconButton onClick={() => fileInputRef.current?.click()} sx={{ color: '#6366f1' }}>
-            <UploadIcon />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Save Progress" placement="right">
-          <IconButton sx={{ color: '#22c55e' }}>
-            <SaveIcon />
-          </IconButton>
-        </Tooltip>
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(2, 1fr)', 
+          gap: 0.5,
+          px: 0.5,
+        }}>
+          <Tooltip title="Upload" placement="top">
+            <IconButton 
+              onClick={() => fileInputRef.current?.click()} 
+              sx={{ 
+                width: 36, 
+                height: 36,
+                borderRadius: 1,
+                color: '#6366f1',
+                '&:hover': { bgcolor: alpha('#6366f1', 0.2) },
+              }}
+            >
+              <UploadIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Save" placement="top">
+            <IconButton 
+              sx={{ 
+                width: 36, 
+                height: 36,
+                borderRadius: 1,
+                color: '#22c55e',
+                '&:hover': { bgcolor: alpha('#22c55e', 0.2) },
+              }}
+            >
+              <SaveIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
 
         <input
           type="file"

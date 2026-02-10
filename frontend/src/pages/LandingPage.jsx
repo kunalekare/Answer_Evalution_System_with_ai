@@ -27,6 +27,14 @@ import {
   IconButton,
   useTheme,
   alpha,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Stepper,
+  Step,
+  StepLabel,
+  StepContent,
+  LinearProgress,
 } from '@mui/material';
 import {
   PlayArrow as PlayIcon,
@@ -45,9 +53,18 @@ import {
   Star as StarIcon,
   FormatQuote as QuoteIcon,
   KeyboardArrowDown as ScrollIcon,
+  Close as CloseIcon,
+  Upload as UploadIcon,
+  Assessment as AssessmentIcon,
+  Grading as GradingIcon,
+  History as HistoryIcon,
+  SmartToy as ChatBotIcon,
+  FactCheck as ManualCheckIcon,
+  Dashboard as DashboardIcon,
 } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
 import Header from '../components/Header';
+import AuthModal from '../components/AuthModal';
 import { useAuth } from '../context/AuthContext';
 
 // Animated components
@@ -137,11 +154,124 @@ const testimonials = [
   },
 ];
 
+// Demo walkthrough steps
+const demoSteps = [
+  {
+    label: 'Sign Up & Login',
+    icon: <SchoolIcon />,
+    description: 'Create your account as a Student, Teacher, or Admin. Each role has different features and access levels.',
+    image: 'https://via.placeholder.com/600x400/6366f1/ffffff?text=Login+%26+Registration',
+  },
+  {
+    label: 'Dashboard Overview',
+    icon: <DashboardIcon />,
+    description: 'Access your personalized dashboard with quick stats, recent evaluations, and easy navigation to all features.',
+    image: 'https://via.placeholder.com/600x400/8b5cf6/ffffff?text=Dashboard',
+  },
+  {
+    label: 'Upload Answer Sheets',
+    icon: <UploadIcon />,
+    description: 'Upload scanned answer sheets and model answers. Our OCR technology extracts text from handwritten content.',
+    image: 'https://via.placeholder.com/600x400/06b6d4/ffffff?text=Upload+Answers',
+  },
+  {
+    label: 'AI-Powered Evaluation',
+    icon: <AIIcon />,
+    description: 'Our semantic AI analyzes answers for meaning, not just keywords. Get accurate scores with detailed feedback.',
+    image: 'https://via.placeholder.com/600x400/22c55e/ffffff?text=AI+Evaluation',
+  },
+  {
+    label: 'Manual Checking',
+    icon: <ManualCheckIcon />,
+    description: 'Review AI evaluations or manually check answer sheets with our intuitive annotation tools and scoring panel.',
+    image: 'https://via.placeholder.com/600x400/f59e0b/ffffff?text=Manual+Checking',
+  },
+  {
+    label: 'View Results & Reports',
+    icon: <AssessmentIcon />,
+    description: 'Access detailed reports with score breakdowns, feedback, and improvement suggestions for each answer.',
+    image: 'https://via.placeholder.com/600x400/ef4444/ffffff?text=Results+%26+Reports',
+  },
+  {
+    label: 'AI Assistant',
+    icon: <ChatBotIcon />,
+    description: 'Get help anytime with our AI chatbot. Ask questions about evaluation, get study tips, or clarify doubts.',
+    image: 'https://via.placeholder.com/600x400/a855f7/ffffff?text=AI+Assistant',
+  },
+  {
+    label: 'History & Analytics',
+    icon: <HistoryIcon />,
+    description: 'Track all your evaluations, view trends, and export data for analysis and reporting.',
+    image: 'https://via.placeholder.com/600x400/3b82f6/ffffff?text=History+%26+Analytics',
+  },
+];
+
 function LandingPage() {
   const navigate = useNavigate();
   const theme = useTheme();
   const { isAuthenticated } = useAuth();
   const [activeTestimonial, setActiveTestimonial] = useState(0);
+  const [authModal, setAuthModal] = useState({ open: false, mode: 'signin' });
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [activeDemoStep, setActiveDemoStep] = useState(0);
+  const [demoProgress, setDemoProgress] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+
+  // Handle auth modal
+  const handleOpenAuth = (mode = 'signin') => {
+    setAuthModal({ open: true, mode });
+  };
+
+  const handleCloseAuth = () => {
+    setAuthModal({ open: false, mode: 'signin' });
+  };
+
+  // Handle demo modal
+  const handleOpenDemo = () => {
+    setDemoOpen(true);
+    setActiveDemoStep(0);
+    setDemoProgress(0);
+    setIsAutoPlaying(true);
+  };
+
+  const handleCloseDemo = () => {
+    setDemoOpen(false);
+    setActiveDemoStep(0);
+    setDemoProgress(0);
+    setIsAutoPlaying(false);
+  };
+
+  const handleNextStep = () => {
+    if (activeDemoStep < demoSteps.length - 1) {
+      setActiveDemoStep(prev => prev + 1);
+      setDemoProgress(0);
+    } else {
+      handleCloseDemo();
+    }
+  };
+
+  const handlePrevStep = () => {
+    if (activeDemoStep > 0) {
+      setActiveDemoStep(prev => prev - 1);
+      setDemoProgress(0);
+    }
+  };
+
+  // Auto-play demo
+  useEffect(() => {
+    if (demoOpen && isAutoPlaying) {
+      const progressInterval = setInterval(() => {
+        setDemoProgress(prev => {
+          if (prev >= 100) {
+            handleNextStep();
+            return 0;
+          }
+          return prev + 2;
+        });
+      }, 100);
+      return () => clearInterval(progressInterval);
+    }
+  }, [demoOpen, isAutoPlaying, activeDemoStep]);
   
   // Auto-rotate testimonials
   useEffect(() => {
@@ -322,7 +452,7 @@ function LandingPage() {
                   size="large"
                   fullWidth
                   endIcon={<ArrowForwardIcon />}
-                  onClick={() => navigate('/dashboard')}
+                  onClick={() => isAuthenticated ? navigate('/dashboard') : handleOpenAuth('signup')}
                   sx={{
                     px: { xs: 3, md: 4 },
                     py: { xs: 1.25, md: 1.5 },
@@ -345,6 +475,7 @@ function LandingPage() {
                   size="large"
                   fullWidth
                   startIcon={<PlayIcon />}
+                  onClick={handleOpenDemo}
                   sx={{
                     px: { xs: 3, md: 4 },
                     py: { xs: 1.25, md: 1.5 },
@@ -1130,6 +1261,327 @@ function LandingPage() {
           </Box>
         </Container>
       </Box>
+
+      {/* Auth Modal */}
+      <AuthModal
+        open={authModal.open}
+        onClose={handleCloseAuth}
+        initialMode={authModal.mode}
+      />
+
+      {/* Demo Walkthrough Modal */}
+      <Dialog
+        open={demoOpen}
+        onClose={handleCloseDemo}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            overflow: 'hidden',
+            background: 'linear-gradient(135deg, #1e1e2f 0%, #2d2d44 100%)',
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%)',
+            color: 'white',
+            py: 2,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <PlayIcon sx={{ fontSize: 28 }} />
+            <Typography variant="h6" fontWeight={600}>
+              AssessIQ Demo Walkthrough
+            </Typography>
+          </Box>
+          <IconButton onClick={handleCloseDemo} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: 0 }}>
+          {/* Progress bar */}
+          <LinearProgress
+            variant="determinate"
+            value={demoProgress}
+            sx={{
+              height: 4,
+              bgcolor: alpha('#fff', 0.1),
+              '& .MuiLinearProgress-bar': {
+                background: 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%)',
+              },
+            }}
+          />
+
+          <Box sx={{ display: 'flex', minHeight: 500 }}>
+            {/* Left sidebar - Steps */}
+            <Box
+              sx={{
+                width: 280,
+                bgcolor: alpha('#000', 0.3),
+                p: 2,
+                display: { xs: 'none', md: 'block' },
+              }}
+            >
+              <Typography variant="caption" sx={{ color: alpha('#fff', 0.5), mb: 2, display: 'block' }}>
+                WALKTHROUGH STEPS
+              </Typography>
+              <Stepper activeStep={activeDemoStep} orientation="vertical" nonLinear>
+                {demoSteps.map((step, index) => (
+                  <Step key={step.label} completed={index < activeDemoStep}>
+                    <StepLabel
+                      onClick={() => {
+                        setActiveDemoStep(index);
+                        setDemoProgress(0);
+                      }}
+                      sx={{
+                        cursor: 'pointer',
+                        '& .MuiStepLabel-label': {
+                          color: index === activeDemoStep ? '#fff' : alpha('#fff', 0.6),
+                          fontWeight: index === activeDemoStep ? 600 : 400,
+                        },
+                        '& .MuiStepIcon-root': {
+                          color: index === activeDemoStep ? '#8b5cf6' : alpha('#fff', 0.3),
+                          '&.Mui-completed': {
+                            color: '#22c55e',
+                          },
+                        },
+                      }}
+                    >
+                      {step.label}
+                    </StepLabel>
+                  </Step>
+                ))}
+              </Stepper>
+            </Box>
+
+            {/* Main content area */}
+            <Box sx={{ flex: 1, p: 4 }}>
+              <AnimatePresence mode="wait">
+                <MotionBox
+                  key={activeDemoStep}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  {/* Step header */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Box
+                      sx={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 3,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                        color: 'white',
+                      }}
+                    >
+                      {demoSteps[activeDemoStep]?.icon}
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: alpha('#fff', 0.5) }}>
+                        Step {activeDemoStep + 1} of {demoSteps.length}
+                      </Typography>
+                      <Typography variant="h5" fontWeight={700} sx={{ color: 'white' }}>
+                        {demoSteps[activeDemoStep]?.label}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Step description */}
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      color: alpha('#fff', 0.8),
+                      lineHeight: 1.8,
+                      mb: 4,
+                    }}
+                  >
+                    {demoSteps[activeDemoStep]?.description}
+                  </Typography>
+
+                  {/* Demo visual/animation area */}
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      height: 250,
+                      borderRadius: 3,
+                      overflow: 'hidden',
+                      bgcolor: alpha('#fff', 0.05),
+                      border: `1px solid ${alpha('#fff', 0.1)}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      position: 'relative',
+                    }}
+                  >
+                    {/* Animated elements based on step */}
+                    <MotionBox
+                      animate={{
+                        scale: [1, 1.05, 1],
+                        opacity: [0.8, 1, 0.8],
+                      }}
+                      transition={{
+                        duration: 3,
+                        repeat: Infinity,
+                        ease: 'easeInOut',
+                      }}
+                      sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 2,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 80,
+                          height: 80,
+                          borderRadius: '50%',
+                          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'white',
+                          boxShadow: '0 0 40px rgba(99, 102, 241, 0.4)',
+                        }}
+                      >
+                        {React.cloneElement(demoSteps[activeDemoStep]?.icon || <></>, { sx: { fontSize: 40 } })}
+                      </Box>
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          color: alpha('#fff', 0.9),
+                          fontWeight: 600,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {demoSteps[activeDemoStep]?.label}
+                      </Typography>
+                    </MotionBox>
+
+                    {/* Decorative floating elements */}
+                    <MotionBox
+                      animate={floatAnimation}
+                      sx={{
+                        position: 'absolute',
+                        top: 20,
+                        right: 40,
+                        width: 40,
+                        height: 40,
+                        borderRadius: 2,
+                        bgcolor: alpha('#6366f1', 0.2),
+                      }}
+                    />
+                    <MotionBox
+                      animate={{
+                        ...floatAnimation,
+                        transition: { ...floatAnimation.transition, delay: 1 },
+                      }}
+                      sx={{
+                        position: 'absolute',
+                        bottom: 30,
+                        left: 50,
+                        width: 30,
+                        height: 30,
+                        borderRadius: '50%',
+                        bgcolor: alpha('#8b5cf6', 0.2),
+                      }}
+                    />
+                  </Paper>
+
+                  {/* Navigation buttons */}
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
+                    <Button
+                      variant="outlined"
+                      onClick={handlePrevStep}
+                      disabled={activeDemoStep === 0}
+                      sx={{
+                        borderColor: alpha('#fff', 0.3),
+                        color: 'white',
+                        '&:hover': {
+                          borderColor: 'white',
+                          bgcolor: alpha('#fff', 0.1),
+                        },
+                        '&:disabled': {
+                          borderColor: alpha('#fff', 0.1),
+                          color: alpha('#fff', 0.3),
+                        },
+                      }}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                      sx={{
+                        borderColor: alpha('#fff', 0.3),
+                        color: 'white',
+                        '&:hover': {
+                          borderColor: 'white',
+                          bgcolor: alpha('#fff', 0.1),
+                        },
+                      }}
+                    >
+                      {isAutoPlaying ? 'Pause' : 'Auto-Play'}
+                    </Button>
+                    <Button
+                      variant="contained"
+                      onClick={activeDemoStep === demoSteps.length - 1 ? handleCloseDemo : handleNextStep}
+                      endIcon={<ArrowForwardIcon />}
+                      sx={{
+                        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                        '&:hover': {
+                          background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                        },
+                      }}
+                    >
+                      {activeDemoStep === demoSteps.length - 1 ? 'Get Started' : 'Next'}
+                    </Button>
+                  </Box>
+                </MotionBox>
+              </AnimatePresence>
+            </Box>
+          </Box>
+
+          {/* Mobile step indicators */}
+          <Box
+            sx={{
+              display: { xs: 'flex', md: 'none' },
+              justifyContent: 'center',
+              gap: 1,
+              py: 2,
+              bgcolor: alpha('#000', 0.3),
+            }}
+          >
+            {demoSteps.map((_, index) => (
+              <Box
+                key={index}
+                onClick={() => {
+                  setActiveDemoStep(index);
+                  setDemoProgress(0);
+                }}
+                sx={{
+                  width: index === activeDemoStep ? 24 : 8,
+                  height: 8,
+                  borderRadius: 4,
+                  bgcolor: index === activeDemoStep ? '#8b5cf6' : alpha('#fff', 0.3),
+                  cursor: 'pointer',
+                  transition: 'all 0.3s',
+                }}
+              />
+            ))}
+          </Box>
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }
