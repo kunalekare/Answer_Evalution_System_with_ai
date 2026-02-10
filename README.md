@@ -454,7 +454,7 @@ _Detailed results with animated score visualization_
 | Name        | Role      | Contact             |
 | ----------- | --------- | ------------------- |
 | [Kunal Ekare] | Developer | [kunalekare02@gmail.com] |
-
+| [Soumya Dhole] | Full Stack Developer | [dholesm@rknec.edu] |
 ---
 
 ## 📄 License
