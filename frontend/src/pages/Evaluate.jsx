@@ -58,8 +58,8 @@ const MotionBox = motion(Box);
 const steps = ['Upload Files', 'Preview Extracted Text', 'Configure Settings', 'Review & Evaluate'];
 
 // Allowed file types
-const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp', 'application/pdf'];
-const ALLOWED_EXTENSIONS = '.png,.jpg,.jpeg,.tiff,.bmp,.pdf';
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp', 'image/jfif', 'image/webp', 'image/gif', 'application/pdf'];
+const ALLOWED_EXTENSIONS = '.png,.jpg,.jpeg,.tiff,.bmp,.pdf,.jfif,.webp,.gif';
 
 // API base URL
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -101,7 +101,7 @@ function Evaluate() {
   // Validate file type
   const isValidFileType = (file) => {
     return ALLOWED_TYPES.includes(file.type) || 
-           file.name.match(/\.(png|jpg|jpeg|tiff|bmp|pdf)$/i);
+           file.name.match(/\.(png|jpg|jpeg|tiff|bmp|pdf|jfif|webp|gif)$/i);
   };
 
   // Handle model file selection
@@ -113,7 +113,7 @@ function Evaluate() {
         setModelAnswerFile(file);
         toast.success(`Model answer uploaded: ${file.name}`);
       } else {
-        toast.error('Invalid file type. Please upload PDF, PNG, JPG, JPEG, TIFF, or BMP files.');
+        toast.error('Invalid file type. Please upload PDF, PNG, JPG, JPEG, JFIF, WEBP, TIFF, or BMP files.');
       }
     }
     // Reset input so same file can be selected again
@@ -129,7 +129,7 @@ function Evaluate() {
         setStudentAnswerFile(file);
         toast.success(`Student answer uploaded: ${file.name}`);
       } else {
-        toast.error('Invalid file type. Please upload PDF, PNG, JPG, JPEG, TIFF, or BMP files.');
+        toast.error('Invalid file type. Please upload PDF, PNG, JPG, JPEG, JFIF, WEBP, TIFF, or BMP files.');
       }
     }
     // Reset input so same file can be selected again
@@ -159,7 +159,7 @@ function Evaluate() {
         setModelAnswerFile(file);
         toast.success(`Model answer uploaded: ${file.name}`);
       } else {
-        toast.error('Invalid file type. Please upload PDF, PNG, JPG, JPEG, TIFF, or BMP files.');
+        toast.error('Invalid file type. Please upload PDF, PNG, JPG, JPEG, JFIF, WEBP, TIFF, or BMP files.');
       }
     }
   };
@@ -187,7 +187,7 @@ function Evaluate() {
         setStudentAnswerFile(file);
         toast.success(`Student answer uploaded: ${file.name}`);
       } else {
-        toast.error('Invalid file type. Please upload PDF, PNG, JPG, JPEG, TIFF, or BMP files.');
+        toast.error('Invalid file type. Please upload PDF, PNG, JPG, JPEG, JFIF, WEBP, TIFF, or BMP files.');
       }
     }
   };

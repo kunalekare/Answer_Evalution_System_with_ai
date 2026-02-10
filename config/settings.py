@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # ========== File Upload Settings ==========
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
-    ALLOWED_EXTENSIONS: list = [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"]
+    ALLOWED_EXTENSIONS: list = [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".jfif", ".webp", ".gif"]
     
     # ========== OCR Settings ==========
     OCR_ENGINE: str = "easyocr"  # Options: "easyocr", "tesseract", "paddleocr"

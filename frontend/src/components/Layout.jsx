@@ -44,6 +44,7 @@ import {
   AdminPanelSettings as AdminIcon,
   Home as HomeIcon,
   Grade as GradeIcon,
+  SmartToy as ChatBotIcon,
 } from '@mui/icons-material';
 import { useAuth, ROLES } from '../context/AuthContext';
 
@@ -56,6 +57,7 @@ const getMenuItems = (role) => {
   if (role === ROLES.STUDENT) {
     return [
       { text: 'My Scores', icon: <GradeIcon />, path: '/student' },
+      { text: 'AI Assistant', icon: <ChatBotIcon />, path: '/chatbot' },
     ];
   }
   
@@ -63,6 +65,7 @@ const getMenuItems = (role) => {
     baseItems.push(
       { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
       { text: 'Evaluate Answer', icon: <AssignmentIcon />, path: '/evaluate' },
+      { text: 'AI Assistant', icon: <ChatBotIcon />, path: '/chatbot' },
       { text: 'History', icon: <HistoryIcon />, path: '/history' }
     );
   }

@@ -26,6 +26,7 @@ import Evaluate from "./pages/Evaluate";
 import Results from "./pages/Results";
 import History from "./pages/History";
 import StudentDashboard from "./pages/StudentDashboard";
+import ChatBot from "./pages/ChatBot";
 
 // Components
 import Layout from "./components/Layout";
@@ -203,6 +204,16 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={[ROLES.TEACHER, ROLES.ADMIN]}>
             <Layout><Evaluate /></Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      {/* AI ChatBot - All authenticated users */}
+      <Route 
+        path="/chatbot" 
+        element={
+          <ProtectedRoute>
+            <Layout><ChatBot /></Layout>
           </ProtectedRoute>
         } 
       />

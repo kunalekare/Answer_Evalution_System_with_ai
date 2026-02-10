@@ -35,6 +35,7 @@ import {
   Speed as SpeedIcon,
   Psychology as AIIcon,
   AutoAwesome as SparkleIcon,
+  AutoAwesome as AutoAwesomeIcon,
   Security as SecurityIcon,
   TrendingUp as TrendingUpIcon,
   School as SchoolIcon,
@@ -794,11 +795,339 @@ function LandingPage() {
       </Box>
 
       {/* ====== FOOTER ====== */}
-      <Box sx={{ py: { xs: 3, md: 4 }, bgcolor: '#1a1a2e', textAlign: 'center' }}>
-        <Container sx={{ px: { xs: 2, sm: 3 } }}>
-          <Typography variant="body2" color={alpha('#fff', 0.5)} sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>
-            © 2024 AssessIQ - AI-Powered Student Answer Evaluation System
-          </Typography>
+      <Box
+        component="footer"
+        sx={{
+          bgcolor: '#0f0f1a',
+          pt: { xs: 6, md: 10 },
+          pb: { xs: 4, md: 6 },
+        }}
+      >
+        <Container maxWidth="lg" sx={{ px: { xs: 3, sm: 4 } }}>
+          {/* Footer Main Content */}
+          <Grid container spacing={{ xs: 4, md: 6 }}>
+            {/* Brand Section */}
+            <Grid item xs={12} md={4}>
+              <Box sx={{ mb: { xs: 3, md: 0 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                  <Box
+                    sx={{
+                      width: 45,
+                      height: 45,
+                      borderRadius: 2,
+                      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <AutoAwesomeIcon sx={{ color: 'white', fontSize: 24 }} />
+                  </Box>
+                  <Typography
+                    variant="h5"
+                    fontWeight={700}
+                    sx={{
+                      background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                    }}
+                  >
+                    AssessIQ
+                  </Typography>
+                </Box>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: alpha('#fff', 0.6),
+                    lineHeight: 1.8,
+                    maxWidth: 300,
+                    fontSize: { xs: '0.85rem', md: '0.9rem' },
+                  }}
+                >
+                  Revolutionizing education with AI-powered answer evaluation. 
+                  Save time, ensure fairness, and provide meaningful feedback to students.
+                </Typography>
+                {/* Social Links */}
+                <Box sx={{ display: 'flex', gap: 1.5, mt: 3 }}>
+                  {[
+                    { icon: '𝕏', label: 'Twitter' },
+                    { icon: 'in', label: 'LinkedIn' },
+                    { icon: 'f', label: 'Facebook' },
+                    { icon: '▶', label: 'YouTube' },
+                  ].map((social) => (
+                    <Box
+                      key={social.label}
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        bgcolor: alpha('#fff', 0.1),
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          bgcolor: '#6366f1',
+                          transform: 'translateY(-3px)',
+                        },
+                      }}
+                    >
+                      <Typography sx={{ color: 'white', fontSize: '0.85rem', fontWeight: 600 }}>
+                        {social.icon}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            </Grid>
+
+            {/* Quick Links */}
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography
+                variant="subtitle1"
+                fontWeight={600}
+                sx={{ color: 'white', mb: 2.5, fontSize: { xs: '0.95rem', md: '1rem' } }}
+              >
+                Product
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {['Features', 'Pricing', 'Integrations', 'API', 'Changelog'].map((item) => (
+                  <Typography
+                    key={item}
+                    variant="body2"
+                    sx={{
+                      color: alpha('#fff', 0.6),
+                      cursor: 'pointer',
+                      transition: 'color 0.2s',
+                      fontSize: { xs: '0.85rem', md: '0.9rem' },
+                      '&:hover': { color: '#a855f7' },
+                    }}
+                  >
+                    {item}
+                  </Typography>
+                ))}
+              </Box>
+            </Grid>
+
+            {/* Company Links */}
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography
+                variant="subtitle1"
+                fontWeight={600}
+                sx={{ color: 'white', mb: 2.5, fontSize: { xs: '0.95rem', md: '1rem' } }}
+              >
+                Company
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {['About Us', 'Careers', 'Blog', 'Press', 'Contact'].map((item) => (
+                  <Typography
+                    key={item}
+                    variant="body2"
+                    sx={{
+                      color: alpha('#fff', 0.6),
+                      cursor: 'pointer',
+                      transition: 'color 0.2s',
+                      fontSize: { xs: '0.85rem', md: '0.9rem' },
+                      '&:hover': { color: '#a855f7' },
+                    }}
+                  >
+                    {item}
+                  </Typography>
+                ))}
+              </Box>
+            </Grid>
+
+            {/* Resources Links */}
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography
+                variant="subtitle1"
+                fontWeight={600}
+                sx={{ color: 'white', mb: 2.5, fontSize: { xs: '0.95rem', md: '1rem' } }}
+              >
+                Resources
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {['Documentation', 'Help Center', 'Tutorials', 'Webinars', 'Community'].map((item) => (
+                  <Typography
+                    key={item}
+                    variant="body2"
+                    sx={{
+                      color: alpha('#fff', 0.6),
+                      cursor: 'pointer',
+                      transition: 'color 0.2s',
+                      fontSize: { xs: '0.85rem', md: '0.9rem' },
+                      '&:hover': { color: '#a855f7' },
+                    }}
+                  >
+                    {item}
+                  </Typography>
+                ))}
+              </Box>
+            </Grid>
+
+            {/* Legal Links */}
+            <Grid item xs={6} sm={4} md={2}>
+              <Typography
+                variant="subtitle1"
+                fontWeight={600}
+                sx={{ color: 'white', mb: 2.5, fontSize: { xs: '0.95rem', md: '1rem' } }}
+              >
+                Legal
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {['Privacy Policy', 'Terms of Service', 'Cookie Policy', 'GDPR', 'Security'].map((item) => (
+                  <Typography
+                    key={item}
+                    variant="body2"
+                    sx={{
+                      color: alpha('#fff', 0.6),
+                      cursor: 'pointer',
+                      transition: 'color 0.2s',
+                      fontSize: { xs: '0.85rem', md: '0.9rem' },
+                      '&:hover': { color: '#a855f7' },
+                    }}
+                  >
+                    {item}
+                  </Typography>
+                ))}
+              </Box>
+            </Grid>
+          </Grid>
+
+          {/* Newsletter Section */}
+          <Box
+            sx={{
+              mt: { xs: 5, md: 8 },
+              p: { xs: 3, md: 4 },
+              borderRadius: 3,
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%)',
+              border: '1px solid',
+              borderColor: alpha('#6366f1', 0.3),
+            }}
+          >
+            <Grid container spacing={3} alignItems="center">
+              <Grid item xs={12} md={6}>
+                <Typography
+                  variant="h6"
+                  fontWeight={600}
+                  sx={{ color: 'white', mb: 1, fontSize: { xs: '1rem', md: '1.25rem' } }}
+                >
+                  Stay Updated with AssessIQ
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ color: alpha('#fff', 0.6), fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                >
+                  Get the latest updates on AI in education, product features, and tips for educators.
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 1.5,
+                    flexDirection: { xs: 'column', sm: 'row' },
+                  }}
+                >
+                  <Box
+                    component="input"
+                    placeholder="Enter your email"
+                    sx={{
+                      flex: 1,
+                      px: 2.5,
+                      py: 1.5,
+                      borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: alpha('#fff', 0.2),
+                      bgcolor: alpha('#fff', 0.05),
+                      color: 'white',
+                      fontSize: '0.9rem',
+                      outline: 'none',
+                      transition: 'all 0.3s',
+                      '&:focus': {
+                        borderColor: '#6366f1',
+                        bgcolor: alpha('#fff', 0.1),
+                      },
+                      '&::placeholder': {
+                        color: alpha('#fff', 0.4),
+                      },
+                    }}
+                  />
+                  <Button
+                    variant="contained"
+                    sx={{
+                      px: 4,
+                      py: 1.5,
+                      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #5558e3 0%, #7c4fe0 100%)',
+                      },
+                    }}
+                  >
+                    Subscribe
+                  </Button>
+                </Box>
+              </Grid>
+            </Grid>
+          </Box>
+
+          {/* Divider */}
+          <Box
+            sx={{
+              height: 1,
+              bgcolor: alpha('#fff', 0.1),
+              my: { xs: 4, md: 5 },
+            }}
+          />
+
+          {/* Bottom Footer */}
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
+            <Typography
+              variant="body2"
+              sx={{
+                color: alpha('#fff', 0.5),
+                fontSize: { xs: '0.8rem', md: '0.85rem' },
+                textAlign: { xs: 'center', md: 'left' },
+              }}
+            >
+              © {new Date().getFullYear()} AssessIQ. All rights reserved. Made with ❤️ for educators worldwide.
+            </Typography>
+            <Box
+              sx={{
+                display: 'flex',
+                gap: { xs: 2, md: 3 },
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+              }}
+            >
+              {['Status', 'Accessibility', 'Sitemap'].map((item) => (
+                <Typography
+                  key={item}
+                  variant="body2"
+                  sx={{
+                    color: alpha('#fff', 0.5),
+                    cursor: 'pointer',
+                    fontSize: { xs: '0.8rem', md: '0.85rem' },
+                    transition: 'color 0.2s',
+                    '&:hover': { color: '#a855f7' },
+                  }}
+                >
+                  {item}
+                </Typography>
+              ))}
+            </Box>
+          </Box>
         </Container>
       </Box>
     </Box>
