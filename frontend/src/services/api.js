@@ -206,4 +206,205 @@ export const healthCheck = async () => {
   }
 };
 
+// ========== Community API ==========
+
+/**
+ * Get list of communities
+ */
+export const getCommunities = async (page = 1, limit = 20) => {
+  const response = await api.get('/community', { params: { page, limit } });
+  return response;
+};
+
+/**
+ * Create a new community
+ */
+export const createCommunity = async (data) => {
+  const response = await api.post('/community', data);
+  return response;
+};
+
+/**
+ * Get community details
+ */
+export const getCommunity = async (communityId) => {
+  const response = await api.get(`/community/${communityId}`);
+  return response;
+};
+
+/**
+ * Update community
+ */
+export const updateCommunity = async (communityId, data) => {
+  const response = await api.put(`/community/${communityId}`, data);
+  return response;
+};
+
+/**
+ * Delete community
+ */
+export const deleteCommunity = async (communityId) => {
+  const response = await api.delete(`/community/${communityId}`);
+  return response;
+};
+
+/**
+ * Add members to community
+ */
+export const addCommunityMembers = async (communityId, memberIds) => {
+  const response = await api.post(`/community/${communityId}/members`, { member_ids: memberIds });
+  return response;
+};
+
+/**
+ * Remove member from community
+ */
+export const removeCommunityMember = async (communityId, memberId) => {
+  const response = await api.delete(`/community/${communityId}/members/${memberId}`);
+  return response;
+};
+
+/**
+ * Get community messages
+ */
+export const getCommunityMessages = async (communityId, page = 1, limit = 50, beforeId = null) => {
+  const params = { page, limit };
+  if (beforeId) params.before_id = beforeId;
+  const response = await api.get(`/community/${communityId}/messages`, { params });
+  return response;
+};
+
+/**
+ * Send message to community
+ */
+export const sendCommunityMessage = async (communityId, content, messageType = 'text', replyToId = null) => {
+  const response = await api.post(`/community/${communityId}/messages`, {
+    content,
+    message_type: messageType,
+    reply_to_id: replyToId
+  });
+  return response;
+};
+
+/**
+ * Send file message to community
+ */
+export const sendCommunityFileMessage = async (communityId, file, content = '') => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('content', content);
+  const response = await api.post(`/community/${communityId}/messages/file`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return response;
+};
+
+/**
+ * Delete message
+ */
+export const deleteCommunityMessage = async (communityId, messageId) => {
+  const response = await api.delete(`/community/${communityId}/messages/${messageId}`);
+  return response;
+};
+
+/**
+ * Pin/unpin message
+ */
+export const pinCommunityMessage = async (communityId, messageId) => {
+  const response = await api.put(`/community/${communityId}/messages/${messageId}/pin`);
+  return response;
+};
+
+/**
+ * Get available members to add
+ */
+export const getAvailableMembers = async (communityId, search = '') => {
+  const response = await api.get(`/community/${communityId}/available-members`, { params: { search } });
+  return response;
+};
+
+// ========== Grievance API ==========
+
+/**
+ * Get list of grievances
+ */
+export const getGrievances = async (page = 1, limit = 20, filters = {}) => {
+  const params = { page, limit, ...filters };
+  const response = await api.get('/grievance', { params });
+  return response;
+};
+
+/**
+ * Create a new grievance
+ */
+export const createGrievance = async (data) => {
+  const response = await api.post('/grievance', data);
+  return response;
+};
+
+/**
+ * Create grievance with attachments
+ */
+export const createGrievanceWithAttachments = async (data, files = []) => {
+  const formData = new FormData();
+  formData.append('subject', data.subject);
+  formData.append('description', data.description);
+  if (data.category) formData.append('category', data.category);
+  if (data.priority) formData.append('priority', data.priority);
+  if (data.community_id) formData.append('community_id', data.community_id);
+  files.forEach(file => formData.append('files', file));
+  
+  const response = await api.post('/grievance/with-attachments', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return response;
+};
+
+/**
+ * Get grievance statistics
+ */
+export const getGrievanceStats = async () => {
+  const response = await api.get('/grievance/stats');
+  return response;
+};
+
+/**
+ * Get grievance details
+ */
+export const getGrievance = async (grievanceId) => {
+  const response = await api.get(`/grievance/${grievanceId}`);
+  return response;
+};
+
+/**
+ * Update grievance status
+ */
+export const updateGrievanceStatus = async (grievanceId, status, resolution = null, escalationReason = null) => {
+  const response = await api.put(`/grievance/${grievanceId}/status`, {
+    status,
+    resolution,
+    escalation_reason: escalationReason
+  });
+  return response;
+};
+
+/**
+ * Add response to grievance
+ */
+export const addGrievanceResponse = async (grievanceId, content, actionTaken = null) => {
+  const response = await api.post(`/grievance/${grievanceId}/response`, {
+    content,
+    action_taken: actionTaken
+  });
+  return response;
+};
+
+/**
+ * Get grievance categories
+ */
+export const getGrievanceCategories = async () => {
+  const response = await api.get('/grievance/categories/list');
+  return response;
+};
+
 export default api;

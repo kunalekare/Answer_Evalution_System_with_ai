@@ -26,6 +26,7 @@ import {
   Paper,
   IconButton,
   useTheme,
+  useMediaQuery,
   alpha,
   Dialog,
   DialogContent,
@@ -209,6 +210,7 @@ const demoSteps = [
 function LandingPage() {
   const navigate = useNavigate();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { isAuthenticated } = useAuth();
   const [activeTestimonial, setActiveTestimonial] = useState(0);
   const [authModal, setAuthModal] = useState({ open: false, mode: 'signin' });
@@ -1277,9 +1279,11 @@ function LandingPage() {
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: 4,
+            borderRadius: { xs: 3, sm: 4 },
             overflow: 'hidden',
             background: 'linear-gradient(135deg, #1e1e2f 0%, #2d2d44 100%)',
+            m: { xs: 1.5, sm: 2 },
+            maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' },
           },
         }}
       >
@@ -1318,7 +1322,7 @@ function LandingPage() {
             }}
           />
 
-          <Box sx={{ display: 'flex', minHeight: 500 }}>
+          <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, minHeight: { xs: 'auto', md: 500 } }}>
             {/* Left sidebar - Steps */}
             <Box
               sx={{
@@ -1361,7 +1365,7 @@ function LandingPage() {
             </Box>
 
             {/* Main content area */}
-            <Box sx={{ flex: 1, p: 4 }}>
+            <Box sx={{ flex: 1, p: { xs: 2, sm: 3, md: 4 }, overflow: 'auto' }}>
               <AnimatePresence mode="wait">
                 <MotionBox
                   key={activeDemoStep}
@@ -1371,26 +1375,27 @@ function LandingPage() {
                   transition={{ duration: 0.3 }}
                 >
                   {/* Step header */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1.5, md: 2 }, mb: { xs: 2, md: 3 } }}>
                     <Box
                       sx={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: 3,
+                        width: { xs: 44, md: 56 },
+                        height: { xs: 44, md: 56 },
+                        borderRadius: { xs: 2, md: 3 },
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
                         color: 'white',
+                        flexShrink: 0,
                       }}
                     >
                       {demoSteps[activeDemoStep]?.icon}
                     </Box>
-                    <Box>
-                      <Typography variant="caption" sx={{ color: alpha('#fff', 0.5) }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="caption" sx={{ color: alpha('#fff', 0.5), fontSize: { xs: '0.65rem', md: '0.75rem' } }}>
                         Step {activeDemoStep + 1} of {demoSteps.length}
                       </Typography>
-                      <Typography variant="h5" fontWeight={700} sx={{ color: 'white' }}>
+                      <Typography variant="h5" fontWeight={700} sx={{ color: 'white', fontSize: { xs: '1.1rem', md: '1.5rem' } }}>
                         {demoSteps[activeDemoStep]?.label}
                       </Typography>
                     </Box>
@@ -1401,8 +1406,9 @@ function LandingPage() {
                     variant="body1"
                     sx={{
                       color: alpha('#fff', 0.8),
-                      lineHeight: 1.8,
-                      mb: 4,
+                      lineHeight: { xs: 1.6, md: 1.8 },
+                      mb: { xs: 2, md: 4 },
+                      fontSize: { xs: '0.875rem', md: '1rem' },
                     }}
                   >
                     {demoSteps[activeDemoStep]?.description}
@@ -1412,8 +1418,8 @@ function LandingPage() {
                   <Paper
                     elevation={0}
                     sx={{
-                      height: 250,
-                      borderRadius: 3,
+                      height: { xs: 180, sm: 220, md: 250 },
+                      borderRadius: { xs: 2, md: 3 },
                       overflow: 'hidden',
                       bgcolor: alpha('#fff', 0.05),
                       border: `1px solid ${alpha('#fff', 0.1)}`,
@@ -1443,8 +1449,8 @@ function LandingPage() {
                     >
                       <Box
                         sx={{
-                          width: 80,
-                          height: 80,
+                          width: { xs: 60, md: 80 },
+                          height: { xs: 60, md: 80 },
                           borderRadius: '50%',
                           background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
                           display: 'flex',
@@ -1454,7 +1460,7 @@ function LandingPage() {
                           boxShadow: '0 0 40px rgba(99, 102, 241, 0.4)',
                         }}
                       >
-                        {React.cloneElement(demoSteps[activeDemoStep]?.icon || <></>, { sx: { fontSize: 40 } })}
+                        {React.cloneElement(demoSteps[activeDemoStep]?.icon || <></>, { sx: { fontSize: { xs: 28, md: 40 } } })}
                       </Box>
                       <Typography
                         variant="h6"
@@ -1462,6 +1468,8 @@ function LandingPage() {
                           color: alpha('#fff', 0.9),
                           fontWeight: 600,
                           textAlign: 'center',
+                          fontSize: { xs: '0.9rem', md: '1.25rem' },
+                          px: 2,
                         }}
                       >
                         {demoSteps[activeDemoStep]?.label}
@@ -1499,46 +1507,67 @@ function LandingPage() {
                   </Paper>
 
                   {/* Navigation buttons */}
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
-                    <Button
-                      variant="outlined"
-                      onClick={handlePrevStep}
-                      disabled={activeDemoStep === 0}
-                      sx={{
-                        borderColor: alpha('#fff', 0.3),
-                        color: 'white',
-                        '&:hover': {
-                          borderColor: 'white',
-                          bgcolor: alpha('#fff', 0.1),
-                        },
-                        '&:disabled': {
-                          borderColor: alpha('#fff', 0.1),
-                          color: alpha('#fff', 0.3),
-                        },
-                      }}
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      onClick={() => setIsAutoPlaying(!isAutoPlaying)}
-                      sx={{
-                        borderColor: alpha('#fff', 0.3),
-                        color: 'white',
-                        '&:hover': {
-                          borderColor: 'white',
-                          bgcolor: alpha('#fff', 0.1),
-                        },
-                      }}
-                    >
-                      {isAutoPlaying ? 'Pause' : 'Auto-Play'}
-                    </Button>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    flexDirection: { xs: 'column', sm: 'row' },
+                    justifyContent: 'space-between', 
+                    alignItems: { xs: 'stretch', sm: 'center' },
+                    gap: { xs: 1.5, sm: 2 },
+                    mt: { xs: 2, md: 4 } 
+                  }}>
+                    <Box sx={{ display: 'flex', gap: 1, order: { xs: 2, sm: 1 } }}>
+                      <Button
+                        variant="outlined"
+                        onClick={handlePrevStep}
+                        disabled={activeDemoStep === 0}
+                        size="small"
+                        sx={{
+                          flex: { xs: 1, sm: 'none' },
+                          borderColor: alpha('#fff', 0.3),
+                          color: 'white',
+                          fontSize: { xs: '0.8rem', md: '0.875rem' },
+                          py: { xs: 1, md: 0.75 },
+                          '&:hover': {
+                            borderColor: 'white',
+                            bgcolor: alpha('#fff', 0.1),
+                          },
+                          '&:disabled': {
+                            borderColor: alpha('#fff', 0.1),
+                            color: alpha('#fff', 0.3),
+                          },
+                        }}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                        size="small"
+                        sx={{
+                          flex: { xs: 1, sm: 'none' },
+                          borderColor: alpha('#fff', 0.3),
+                          color: 'white',
+                          fontSize: { xs: '0.8rem', md: '0.875rem' },
+                          py: { xs: 1, md: 0.75 },
+                          display: { xs: 'none', sm: 'inline-flex' },
+                          '&:hover': {
+                            borderColor: 'white',
+                            bgcolor: alpha('#fff', 0.1),
+                          },
+                        }}
+                      >
+                        {isAutoPlaying ? 'Pause' : 'Auto-Play'}
+                      </Button>
+                    </Box>
                     <Button
                       variant="contained"
                       onClick={activeDemoStep === demoSteps.length - 1 ? handleCloseDemo : handleNextStep}
                       endIcon={<ArrowForwardIcon />}
                       sx={{
+                        order: { xs: 1, sm: 2 },
                         background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                        fontSize: { xs: '0.9rem', md: '0.875rem' },
+                        py: { xs: 1.25, md: 0.75 },
                         '&:hover': {
                           background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
                         },

@@ -51,10 +51,23 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: list = [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".jfif", ".webp", ".gif"]
     
     # ========== OCR Settings ==========
-    OCR_ENGINE: str = "easyocr"  # Options: "easyocr", "tesseract", "paddleocr"
+    OCR_ENGINE: str = "sarvam"  # Use advanced OCR APIs for handwriting
     OCR_LANGUAGES: list = ["en"]  # Languages for OCR
     TESSERACT_PATH: Optional[str] = None  # Path to tesseract executable
-    LOW_MEMORY_MODE: bool = True  # Enable for free hosting (512MB RAM) - uses lighter processing
+    LOW_MEMORY_MODE: bool = False  # Disable for better OCR accuracy
+    FAST_OCR_MODE: bool = True  # Skip heavy preprocessing for faster OCR
+    
+    # ========== Sarvam AI OCR Settings ==========
+    SARVAM_API_KEY: str = "sk_dejvv3m8_y0cDisH2QsCaSUW6zvA7oYNd"  # Sarvam AI API key
+    SARVAM_API_URL: str = "https://api.sarvam.ai/parse-image"  # Sarvam AI OCR endpoint
+    
+    # ========== OCR.space Settings (Free, good for handwriting) ==========
+    OCRSPACE_API_KEY: str = "K88888888888957"  # Free public key (limited)
+    # Get your own key at https://ocr.space/ocrapi for higher limits
+    
+    # ========== Google Cloud Vision (Optional - Best accuracy) ==========
+    GOOGLE_CLOUD_API_KEY: Optional[str] = None  # Set for best handwriting OCR
+    # Get key from https://console.cloud.google.com/apis/credentials
     
     # ========== NLP Settings ==========
     SPACY_MODEL: str = "en_core_web_sm"

@@ -7,11 +7,14 @@ This is the main processing pipeline for answer evaluation.
 
 import os
 import logging
+import uuid
+import tempfile
+import shutil
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, File, UploadFile
 from pydantic import BaseModel, Field
 
 from config.settings import settings
@@ -523,3 +526,179 @@ async def get_scoring_weights():
             "average": settings.SEMANTIC_AVERAGE_THRESHOLD
         }
     }
+
+
+class OCRTestRequest(BaseModel):
+    """Request model for OCR comparison test."""
+    evaluation_id: str = Field(..., description="Evaluation ID with uploaded images")
+    test_model_answer: bool = Field(default=True, description="Test the model answer image")
+    test_student_answer: bool = Field(default=True, description="Test the student answer image")
+
+
+@router.post("/test-ocr")
+async def test_ocr_comparison(request: OCRTestRequest):
+    """
+    Test and compare OCR results between Sarvam AI and current OCR engine.
+    
+    This endpoint allows you to compare the accuracy of Sarvam AI's vision OCR 
+    against the current OCR engine (EasyOCR) for the uploaded images.
+    
+    **Returns:**
+    - Results from both OCR engines
+    - Character count comparison
+    - Recommendation on which engine performed better
+    """
+    
+    # Verify evaluation exists
+    eval_dir = os.path.join(settings.UPLOAD_DIR, "evaluations", request.evaluation_id)
+    if not os.path.exists(eval_dir):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Evaluation {request.evaluation_id} not found. Please upload files first."
+        )
+    
+    try:
+        from api.services.ocr_service import OCRService
+        
+        # Find uploaded files
+        files = os.listdir(eval_dir)
+        model_files = [f for f in files if f.startswith("model_")]
+        student_files = [f for f in files if f.startswith("student_")]
+        
+        results = {
+            "evaluation_id": request.evaluation_id,
+            "model_answer_comparison": None,
+            "student_answer_comparison": None,
+            "summary": {}
+        }
+        
+        # Initialize OCR service
+        ocr = OCRService()
+        
+        # Test model answer if requested
+        if request.test_model_answer and model_files:
+            model_path = os.path.join(eval_dir, model_files[0])
+            logger.info(f"Testing OCR on model answer: {model_path}")
+            results["model_answer_comparison"] = ocr.extract_with_sarvam_test(model_path)
+        
+        # Test student answer if requested
+        if request.test_student_answer and student_files:
+            student_path = os.path.join(eval_dir, student_files[0])
+            logger.info(f"Testing OCR on student answer: {student_path}")
+            results["student_answer_comparison"] = ocr.extract_with_sarvam_test(student_path)
+        
+        # Generate summary
+        total_current = 0
+        total_sarvam = 0
+        
+        if results["model_answer_comparison"]:
+            comp = results["model_answer_comparison"].get("comparison", {})
+            total_current += comp.get("current_engine_chars", 0)
+            total_sarvam += comp.get("sarvam_chars", 0)
+        
+        if results["student_answer_comparison"]:
+            comp = results["student_answer_comparison"].get("comparison", {})
+            total_current += comp.get("current_engine_chars", 0)
+            total_sarvam += comp.get("sarvam_chars", 0)
+        
+        results["summary"] = {
+            "total_current_engine_chars": total_current,
+            "total_sarvam_chars": total_sarvam,
+            "overall_difference": total_sarvam - total_current,
+            "overall_recommendation": "sarvam" if total_sarvam > total_current else "current_engine",
+            "note": "More characters generally indicates better text extraction, but quality matters too. Review the actual text content for accuracy."
+        }
+        
+        return {
+            "success": True,
+            "message": "OCR comparison complete",
+            "data": results
+        }
+        
+    except Exception as e:
+        logger.error(f"OCR test failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"OCR test failed: {str(e)}"
+        )
+
+
+@router.post("/test-sarvam-image")
+async def test_sarvam_with_image(
+    image: UploadFile = File(..., description="Handwritten image to test OCR (PNG, JPG, JPEG, PDF)")
+):
+    """
+    Upload a handwritten image and test Sarvam AI OCR extraction.
+    
+    This endpoint allows you to directly upload an image and see:
+    - Text extracted by Sarvam AI
+    - Text extracted by EasyOCR (current engine)
+    - Comparison of both results
+    
+    **Supported formats:** PNG, JPG, JPEG, PDF
+    
+    **Returns:**
+    - Extracted text from both engines
+    - Character count comparison
+    - Recommendation on which engine performed better
+    """
+    
+    # Validate file type
+    allowed_extensions = {".png", ".jpg", ".jpeg", ".pdf", ".webp", ".bmp", ".tiff"}
+    file_ext = os.path.splitext(image.filename)[1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {file_ext}. Allowed: {', '.join(allowed_extensions)}"
+        )
+    
+    # Create temp directory to store the uploaded file
+    temp_dir = tempfile.mkdtemp(prefix="sarvam_test_")
+    file_path = os.path.join(temp_dir, f"test_image{file_ext}")
+    
+    try:
+        # Save uploaded file
+        logger.info(f"Saving uploaded file: {image.filename}")
+        with open(file_path, "wb") as f:
+            content = await image.read()
+            f.write(content)
+        
+        logger.info(f"File saved to: {file_path} ({len(content)} bytes)")
+        
+        from api.services.ocr_service import OCRService
+        
+        # Initialize OCR service
+        ocr = OCRService()
+        
+        # Get comparison results
+        comparison_result = ocr.extract_with_sarvam_test(file_path)
+        
+        return {
+            "success": True,
+            "message": "Sarvam AI OCR test complete",
+            "filename": image.filename,
+            "file_size": len(content),
+            "data": {
+                "sarvam_result": comparison_result.get("sarvam_result", ""),
+                "easyocr_result": comparison_result.get("current_engine_result", ""),
+                "sarvam_error": comparison_result.get("sarvam_error"),
+                "comparison": comparison_result.get("comparison", {}),
+                "recommendation": comparison_result.get("comparison", {}).get("recommended", "unknown")
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Sarvam OCR test failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"OCR test failed: {str(e)}"
+        )
+    
+    finally:
+        # Clean up temp directory
+        try:
+            shutil.rmtree(temp_dir)
+            logger.info(f"Cleaned up temp directory: {temp_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to clean up temp dir {temp_dir}: {e}")

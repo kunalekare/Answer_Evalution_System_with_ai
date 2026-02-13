@@ -28,6 +28,7 @@ import History from "./pages/History";
 import StudentDashboard from "./pages/StudentDashboard";
 import ChatBot from "./pages/ChatBot";
 import ManualChecking from "./pages/ManualChecking";
+import Community from "./pages/Community";
 
 // Components
 import Layout from "./components/Layout";
@@ -225,6 +226,16 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout><ChatBot /></Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      {/* Community - All authenticated users */}
+      <Route 
+        path="/community" 
+        element={
+          <ProtectedRoute>
+            <Layout><Community /></Layout>
           </ProtectedRoute>
         } 
       />

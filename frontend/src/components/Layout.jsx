@@ -46,6 +46,7 @@ import {
   Grade as GradeIcon,
   SmartToy as ChatBotIcon,
   FactCheck as ManualCheckIcon,
+  Forum as CommunityIcon,
 } from '@mui/icons-material';
 import { useAuth, ROLES } from '../context/AuthContext';
 
@@ -59,6 +60,7 @@ const getMenuItems = (role) => {
     return [
       { text: 'My Scores', icon: <GradeIcon />, path: '/student' },
       { text: 'AI Assistant', icon: <ChatBotIcon />, path: '/chatbot' },
+      { text: 'Community', icon: <CommunityIcon />, path: '/community' },
     ];
   }
   
@@ -68,6 +70,7 @@ const getMenuItems = (role) => {
       { text: 'Evaluate Answer', icon: <AssignmentIcon />, path: '/evaluate' },
       { text: 'Manual Checking', icon: <ManualCheckIcon />, path: '/manual-checking' },
       { text: 'AI Assistant', icon: <ChatBotIcon />, path: '/chatbot' },
+      { text: 'Community', icon: <CommunityIcon />, path: '/community' },
       { text: 'History', icon: <HistoryIcon />, path: '/history' }
     );
   }

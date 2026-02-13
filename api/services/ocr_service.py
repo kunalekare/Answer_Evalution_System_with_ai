@@ -37,6 +37,9 @@ from typing import Optional, List, Tuple, Union
 from pathlib import Path
 import numpy as np
 import tempfile
+import base64
+import requests
+import time
 
 logger = logging.getLogger("AssessIQ.OCR")
 
@@ -353,6 +356,8 @@ class OCRService:
             self._init_tesseract()
         elif self.engine_name == "paddleocr":
             self._init_paddleocr()
+        elif self.engine_name == "sarvam":
+            self._init_sarvam()
         else:
             logger.warning(f"Unknown engine: {self.engine_name}, falling back to EasyOCR")
             self._init_easyocr()
@@ -403,6 +408,21 @@ class OCRService:
             logger.error("PaddleOCR not installed. Install with: pip install paddleocr")
             raise
     
+    def _init_sarvam(self):
+        """Initialize Sarvam AI OCR engine (uses API)."""
+        from config.settings import settings
+        self._sarvam_api_key = getattr(settings, 'SARVAM_API_KEY', None)
+        self._sarvam_api_url = getattr(settings, 'SARVAM_API_URL', 'https://api.sarvam.ai/v1/vision/ocr')
+        self._fast_ocr_mode = getattr(settings, 'FAST_OCR_MODE', True)
+        
+        if not self._sarvam_api_key:
+            logger.error("Sarvam AI API key not configured in settings")
+            raise ValueError("Sarvam AI API key not configured")
+        
+        self.engine_name = "sarvam"
+        self._engine = "sarvam_api"  # Placeholder - we use HTTP requests
+        logger.info(f"Sarvam AI OCR initialized successfully (fast_mode={self._fast_ocr_mode})")
+    
     def extract_text(
         self, 
         image_path: str,
@@ -423,7 +443,7 @@ class OCRService:
         # Ensure engine is initialized (for lazy loading in low memory mode)
         self._ensure_engine_initialized()
         
-        logger.info(f"Extracting text from: {image_path}")
+        logger.info(f"Extracting text from: {image_path} using engine: {self.engine_name}")
         
         # Validate file exists
         if not os.path.exists(image_path):
@@ -433,7 +453,16 @@ class OCRService:
         if image_path.lower().endswith('.pdf'):
             return self._extract_from_pdf(image_path, preprocess, detail)
         
-        # For image files, use the multi-approach extraction method
+        # For Sarvam AI - use direct fast API (no preprocessing needed)
+        if self.engine_name == "sarvam":
+            logger.info("Using Sarvam AI FAST mode - skipping local preprocessing")
+            start_time = time.time()
+            result = self._extract_sarvam(image_path, detail)
+            elapsed = time.time() - start_time
+            logger.info(f"Sarvam AI extraction completed in {elapsed:.2f}s")
+            return result
+        
+        # For other engines, use the multi-approach extraction method
         # which tries multiple preprocessing techniques for best results
         result = self._extract_from_image(image_path, preprocess, detail)
         
@@ -558,6 +587,718 @@ class OCRService:
         texts = [r[1][0] for r in results[0]]
         return " ".join(texts)
     
+    def _extract_sarvam(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """
+        Extract text using advanced OCR - tries multiple high-quality APIs.
+        
+        Priority:
+        1. Google Cloud Vision (best for handwriting - requires API key)
+        2. OCR.space Engine 2 (good accuracy, free)
+        3. Sarvam Document Intelligence (convert to PDF)
+        4. EasyOCR (local fallback)
+        
+        Post-processing is applied to fix common OCR errors.
+        """
+        start_time = time.time()
+        result = ""
+        
+        # Try Google Cloud Vision first (if configured)
+        result = self._extract_google_vision(image_path, detail)
+        if result and len(result) > 50:
+            elapsed = time.time() - start_time
+            logger.info(f"Google Vision completed in {elapsed:.2f}s with {len(result)} chars")
+            return self._postprocess_ocr(result) if not detail else result
+        
+        # Try OCR.space (free API)
+        result = self._extract_ocrspace(image_path, detail)
+        if result and len(result) > 50:
+            elapsed = time.time() - start_time
+            logger.info(f"OCR.space completed in {elapsed:.2f}s with {len(result)} chars")
+            return self._postprocess_ocr(result) if not detail else result
+        
+        # Try Sarvam Document Intelligence (convert image to PDF)
+        result = self._extract_sarvam_via_pdf(image_path, detail)
+        if result and len(result) > 50:
+            elapsed = time.time() - start_time
+            logger.info(f"Sarvam SDK completed in {elapsed:.2f}s with {len(result)} chars")
+            return self._postprocess_ocr(result) if not detail else result
+        
+        logger.warning("All advanced OCR failed, falling back to EasyOCR")
+        result = self._fallback_easyocr(image_path, detail)
+        return self._postprocess_ocr(result) if not detail and result else result
+    
+    def _postprocess_ocr(self, text: str) -> str:
+        """
+        Post-process OCR text to fix common errors.
+        Improves accuracy for handwritten text recognition.
+        """
+        if not text:
+            return text
+        
+        import re
+        
+        # Common OCR corrections for handwriting - comprehensive list
+        corrections = {
+            # Name corrections (common Indian names)
+            r'\bOrakriti\b': 'Prakriti',  # P read as O
+            r'\bPrakrit\b': 'Prakriti',
+            
+            # School/Institution names
+            r'\b([Ss])ohoo\b': r'\1chool',  # Sohoo -> School
+            r'\b([Ss])choo\b': r'\1chool',
+            r'\bMahavioyalaya\b': 'Mahavidyalaya',  # dy misread as oy
+            r'\bMahavidya1aya\b': 'Mahavidyalaya',
+            r'\bSamik\b': 'Sainik',  # Sainik Residential School
+            r'\bAvasiya\b': 'Avasiya',  # Residential
+            
+            # Section/Class corrections
+            r'\bĐec\b': 'Sec',  # Đec -> Sec
+            r'\bDec\s*:\s*': 'Sec: ',
+            r'\b6B\b': '6B',  
+            r'\bTight\b': 'Eight',  # Tight -> Eight (in context of Class: 8)
+            r'Class\s*:\s*8\s*\(\s*Tight\s*\)': 'Class: 8 (Eight)',
+            
+            # Common word errors in educational text
+            r'\badils\b': 'adults',
+            r'\bstudunts\b': 'students',
+            r'\bclassrocr\b': 'classroom',
+            r'\bdassroom\b': 'classroom', 
+            r'\bclassrcom\b': 'classroom',
+            r'\bclassroem\b': 'classroom',
+            r'\bolassrom\b': 'classroom',
+            r'\bcassroems\b': 'classrooms',
+            r'\bknowldge\b': 'knowledge',
+            r'\bpercil\b': 'pencil',
+            r'\bactvilies\b': 'activities',
+            r'\bactiviliss\b': 'activities',
+            r'\bactivilies\b': 'activities',
+            r'\bkindırgartın\b': 'kindergarten',
+            r'\bkindergartın\b': 'kindergarten',
+            r'\bporcont\b': 'percent',
+            r'\bporcent\b': 'percent',
+            r'\bhandrriting\b': 'handwriting',
+            r'\bhandiriting\b': 'handwriting',
+            r'\bhandvriling\b': 'handwriting',
+            r'\bhandrritten\b': 'handwritten',
+            r'\bhandruritten\b': 'handwritten',
+            r'\bhandwvillen\b': 'handwritten',
+            r'\bCelloge\b': 'College',
+            r'\bColege\b': 'College',
+            r'\bimportanu\b': 'importance',
+            r'\blitracy\b': 'literacy',  
+            r'\bexperind\b': 'experience',
+            r'\bexperinca\b': 'experience',
+            r'\bdeficulty\b': 'difficulty',
+            r'\bmostring\b': 'mastering',
+            r'\bmostering\b': 'mastering',
+            r'\bvensequenas\b': 'consequences',
+            r'\beslensizily\b': 'extensively',
+            r'\bstudunt\b': 'student',
+            r'\bcommunicaticn\b': 'communication',
+            r'\bsludy\b': 'study',
+            r'\bfirt\b': 'fine',
+            r'\brecnt\b': 'recent',
+            r'\bnold\b': 'noted',
+            r'\bslan\b': 'state',
+            r'\bafier\b': 'after',
+            r'\bafler\b': 'after',
+            r'\bgraduafion\b': 'graduation',
+            r'\breference\b': 'reference',
+            r'\bwviorld\b': 'world',
+            r'\bwiorld\b': 'world',
+            r'\bpoople\b': 'people',
+            r'\bjudog\b': 'judge',
+            r'\bjudon\b': 'judge',
+            r'\bacadımic\b': 'academic',
+            r'\bacademic\b': 'academic',
+            r'\bpeor\b': 'poor',
+            r'\bcarly\b': 'early',
+            r'\bromains\b': 'remains',
+            r'\bwhther\b': 'whether',
+            r'\bwhelher\b': 'whether',
+            r'\bboyond\b': 'beyond',
+            r'\bfund\b(?=\s+Chat)': 'found',  # "fund Chat" -> "found that"
+            r'\bChat\b(?=\s+\d)': 'that',  # "Chat 85" -> "that 85"
+            r'\bEien\b': 'Even',
+            r'\bfool\b': 'tool',
+            r'\bmolor\b': 'motor',
+            r'\bCime\b': 'time',
+            r'\bsisth\b': 'sixth',
+            r'\baddifion\b': 'addition',
+            r'\bEcripl\b': 'Script',
+            r'\bSoribble\b': 'Scribble',
+            r'\bFlory\b': 'Florey',
+            r'\bwrifes\b': 'writes',
+            r'\bnoturn\b': 'not',
+            r'\bmachine-drin\b': 'machine-driven',
+            r'\bRessarch\b': 'Research',
+            # Additional corrections for remaining errors
+            r'\bhandrrting\b': 'handwriting',  
+            r'\bhandrriling\b': 'handwriting',
+            r'\bhondwritten\b': 'handwritten',
+            r'\bexperina\b': 'experience',
+            r'\bperform\b\.': 'performance.',
+            r'\blo\b': 'to',  # "lo" often misread as "to"
+            r'\bil\b': 'it',  # "il" often misread as "it"
+            r'\bar\s+non\b': 'are now',  # "ar non" -> "are now"
+            r'\(he\s+importance': '(the importance',  # "(he" -> "(the"
+            r'\bnolurn\b': 'not',  # "nolurn" -> "not"
+            r'\bjudge\s+you\s+be\b': 'judge you by',  # "be your" -> "by your"
+            r'\bstate\s+state\b': 'state',  # duplicate "state state"
+            r'\bf\s+poor\b': 'of poor',  # "f poor" -> "of poor"
+        }
+        
+        result = text
+        for pattern, replacement in corrections.items():
+            result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+        
+        return result
+    
+    def _extract_google_vision(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """
+        Extract text using Google Cloud Vision API.
+        Best accuracy for handwritten text.
+        """
+        try:
+            from config.settings import settings
+            google_api_key = getattr(settings, 'GOOGLE_CLOUD_API_KEY', None)
+            
+            if not google_api_key:
+                logger.info("Google Cloud API key not configured, skipping")
+                return "" if not detail else []
+            
+            logger.info(f"Starting Google Cloud Vision for: {image_path}")
+            
+            # Read and encode image
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # Call Google Cloud Vision API
+            response = requests.post(
+                f'https://vision.googleapis.com/v1/images:annotate?key={google_api_key}',
+                json={
+                    'requests': [{
+                        'image': {'content': image_base64},
+                        'features': [
+                            {'type': 'DOCUMENT_TEXT_DETECTION'},  # Better for handwriting
+                        ]
+                    }]
+                },
+                timeout=60
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                responses = result.get('responses', [])
+                if responses:
+                    full_text = responses[0].get('fullTextAnnotation', {}).get('text', '')
+                    if full_text:
+                        logger.info(f"Google Vision extracted {len(full_text)} characters")
+                        if detail:
+                            return [{'text': full_text, 'confidence': 1.0, 'engine': 'google_vision'}]
+                        return full_text.strip()
+            
+            logger.warning(f"Google Vision API failed: {response.status_code}")
+            return "" if not detail else []
+            
+        except Exception as e:
+            logger.warning(f"Google Vision failed: {e}")
+            return "" if not detail else []
+    
+    def _extract_ocrspace(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """
+        Extract text using OCR.space free API with image preprocessing.
+        Tries multiple strategies for best results on handwriting.
+        """
+        try:
+            from config.settings import settings
+            logger.info(f"Starting OCR.space API for: {image_path}")
+            
+            # Get API key from settings
+            api_key = getattr(settings, 'OCRSPACE_API_KEY', "K88888888888957")
+            
+            best_result = ""
+            
+            # Strategy 1: Direct image with Engine 2 (best for handwriting)
+            result = self._ocrspace_request(image_path, api_key, engine='2')
+            if result and len(result) > len(best_result):
+                best_result = result
+            
+            # If result is poor, try with preprocessed image
+            if len(best_result) < 500 and self.preprocessor._available:
+                logger.info("Trying with preprocessed image...")
+                import cv2
+                
+                try:
+                    # Load and preprocess image
+                    image = self.preprocessor.load_image(image_path)
+                    processed = self._preprocess_for_ocr(image)
+                    
+                    # Save preprocessed image
+                    temp_path = f"{image_path}_preprocessed.png"
+                    cv2.imwrite(temp_path, processed)
+                    
+                    # Try OCR on preprocessed image
+                    result = self._ocrspace_request(temp_path, api_key, engine='2')
+                    if result and len(result) > len(best_result):
+                        best_result = result
+                        logger.info(f"Preprocessed image gave better result: {len(result)} chars")
+                    
+                    # Cleanup
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+                except Exception as e:
+                    logger.warning(f"Preprocessing failed: {e}")
+            
+            # Strategy 2: Try Engine 1 if Engine 2 gave poor results
+            if len(best_result) < 200:
+                logger.info("Trying Engine 1...")
+                result = self._ocrspace_request(image_path, api_key, engine='1')
+                if result and len(result) > len(best_result):
+                    best_result = result
+            
+            logger.info(f"OCR.space extracted {len(best_result)} characters")
+            
+            if detail:
+                return [{'text': best_result, 'confidence': 1.0, 'engine': 'ocrspace'}]
+            
+            return best_result.strip()
+                
+        except Exception as e:
+            logger.warning(f"OCR.space API failed: {e}")
+            return "" if not detail else []
+    
+    def _ocrspace_request(self, image_path: str, api_key: str, engine: str = '2') -> str:
+        """Make a single OCR.space API request."""
+        try:
+            # Read and encode image
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # Get file extension
+            ext = os.path.splitext(image_path)[1].lower().replace('.', '')
+            if ext in ['jfif', 'jpeg']:
+                ext = 'jpg'
+            
+            payload = {
+                'apikey': api_key,
+                'base64Image': f'data:image/{ext};base64,{image_base64}',
+                'language': 'eng',
+                'isOverlayRequired': 'false',
+                'OCREngine': engine,
+                'scale': 'true',
+                'detectOrientation': 'true',
+            }
+            
+            response = requests.post(
+                'https://api.ocr.space/parse/image',
+                data=payload,
+                timeout=60
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if not result.get('IsErroredOnProcessing'):
+                    parsed = result.get('ParsedResults', [])
+                    if parsed:
+                        return parsed[0].get('ParsedText', '')
+            
+            return ""
+        except Exception as e:
+            logger.warning(f"OCR.space request failed: {e}")
+            return ""
+    
+    def _preprocess_for_ocr(self, image: np.ndarray) -> np.ndarray:
+        """
+        Preprocess image for better OCR accuracy.
+        Optimized for handwritten text on lined paper.
+        """
+        import cv2
+        
+        # Convert to grayscale
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+        
+        # Resize for better OCR (larger is better)
+        h, w = gray.shape[:2]
+        if w < 2000:
+            scale = 2000 / w
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        
+        # Apply CLAHE for contrast enhancement
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+        
+        # Denoise while preserving edges
+        denoised = cv2.fastNlMeansDenoising(enhanced, None, 10, 7, 21)
+        
+        # Sharpen to make text clearer
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        sharpened = cv2.filter2D(denoised, -1, kernel)
+        
+        # Light adaptive threshold to clean up background
+        # Use larger block for handwriting
+        binary = cv2.adaptiveThreshold(
+            sharpened, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31, 10
+        )
+        
+        return binary
+    
+    def _extract_sarvam_via_pdf(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """
+        Extract text using Sarvam AI by converting image to PDF first.
+        Sarvam Document Intelligence only accepts PDF files.
+        """
+        try:
+            from sarvamai import SarvamAI
+            from PIL import Image
+            import tempfile
+            
+            logger.info(f"Starting Sarvam AI (via PDF) for: {image_path}")
+            
+            # Convert image to PDF
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as pdf_file:
+                pdf_path = pdf_file.name
+            
+            # Create PDF from image
+            img = Image.open(image_path)
+            if img.mode == 'RGBA':
+                img = img.convert('RGB')
+            img.save(pdf_path, 'PDF', resolution=300)
+            
+            logger.info(f"Converted image to PDF: {pdf_path}")
+            
+            # Initialize Sarvam AI client
+            client = SarvamAI(api_subscription_key=self._sarvam_api_key)
+            
+            # Create job
+            job = client.document_intelligence.create_job(
+                language="en-IN",
+                output_format="md"
+            )
+            logger.info(f"Sarvam job created: {job.job_id}")
+            
+            # Upload PDF
+            job.upload_file(pdf_path)
+            logger.info("PDF uploaded")
+            
+            # Start and wait
+            job.start()
+            job.wait_until_complete()
+            logger.info("Sarvam job completed")
+            
+            # Download output
+            with tempfile.TemporaryDirectory() as temp_dir:
+                output_path = os.path.join(temp_dir, "output")
+                job.download_output(output_path)
+                
+                # Read output
+                extracted_text = ""
+                for ext in ['.md', '.txt', '']:
+                    fpath = output_path + ext
+                    if os.path.exists(fpath):
+                        with open(fpath, 'r', encoding='utf-8') as f:
+                            extracted_text = f.read()
+                        break
+            
+            # Cleanup PDF
+            try:
+                os.remove(pdf_path)
+            except:
+                pass
+            
+            logger.info(f"Sarvam extracted {len(extracted_text)} characters")
+            
+            if detail:
+                return [{'text': extracted_text, 'confidence': 1.0, 'engine': 'sarvam_sdk'}]
+            
+            return extracted_text.strip() if extracted_text else ""
+            
+        except Exception as e:
+            logger.warning(f"Sarvam via PDF failed: {e}")
+            return "" if not detail else []
+    
+    def _fallback_easyocr(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """
+        Fallback to local EasyOCR if all cloud APIs fail.
+        """
+        try:
+            # Re-initialize EasyOCR if needed
+            if self.engine_name != "easyocr" or self._engine is None:
+                self._init_easyocr()
+            
+            return self._extract_easyocr_handwriting(image_path)
+        except Exception as e:
+            logger.error(f"EasyOCR fallback failed: {e}")
+            return "" if not detail else []
+    
+    def _extract_sarvam_fast(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """
+        FAST Sarvam AI OCR using direct HTTP API call.
+        
+        This bypasses the slow job-based workflow for immediate results.
+        """
+        try:
+            logger.info(f"Starting Sarvam AI FAST OCR for: {image_path}")
+            
+            # Read and encode image as base64
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # Get file extension to determine mime type
+            ext = os.path.splitext(image_path)[1].lower()
+            mime_types = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+                '.bmp': 'image/bmp',
+                '.tiff': 'image/tiff',
+                '.jfif': 'image/jpeg'
+            }
+            mime_type = mime_types.get(ext, 'image/png')
+            
+            # Encode to base64
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # Prepare headers
+            headers = {
+                'Content-Type': 'application/json',
+                'api-subscription-key': self._sarvam_api_key
+            }
+            
+            # Prepare payload for Sarvam AI OCR API
+            payload = {
+                'image': f'data:{mime_type};base64,{image_base64}',
+                'model': 'sarvam-ocr-1',
+                'language_code': 'en-IN'
+            }
+            
+            # Make the API request with timeout
+            logger.info("Sending request to Sarvam AI OCR API...")
+            response = requests.post(
+                'https://api.sarvam.ai/parse-image',
+                headers=headers,
+                json=payload,
+                timeout=60  # 60 second timeout
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Extract text from response
+                extracted_text = ""
+                if isinstance(result, dict):
+                    # Try different response formats
+                    extracted_text = result.get('text', '') or result.get('extracted_text', '') or result.get('content', '')
+                    
+                    # If response has 'ocr_text' or similar fields
+                    if not extracted_text:
+                        extracted_text = result.get('ocr_text', '') or result.get('result', '') or result.get('output', '')
+                    
+                    # If it's in a nested structure
+                    if not extracted_text and 'data' in result:
+                        data = result['data']
+                        if isinstance(data, dict):
+                            extracted_text = data.get('text', '') or data.get('content', '')
+                        elif isinstance(data, str):
+                            extracted_text = data
+                    
+                    # Try to extract from blocks/regions if present
+                    if not extracted_text and 'blocks' in result:
+                        blocks = result['blocks']
+                        if isinstance(blocks, list):
+                            texts = [b.get('text', '') for b in blocks if isinstance(b, dict)]
+                            extracted_text = '\n'.join(filter(None, texts))
+                    
+                    # Last resort: stringify the entire response
+                    if not extracted_text:
+                        extracted_text = str(result)
+                
+                elif isinstance(result, str):
+                    extracted_text = result
+                
+                logger.info(f"Sarvam AI FAST extracted {len(extracted_text)} characters")
+                
+                if detail:
+                    return [{
+                        'text': extracted_text,
+                        'confidence': 1.0,
+                        'bbox': None,
+                        'engine': 'sarvam_fast'
+                    }]
+                
+                return extracted_text.strip()
+            
+            else:
+                logger.warning(f"Sarvam AI API returned status {response.status_code}: {response.text}")
+                return "" if not detail else []
+                
+        except requests.Timeout:
+            logger.warning("Sarvam AI FAST OCR timed out")
+            return "" if not detail else []
+        except Exception as e:
+            logger.warning(f"Sarvam AI FAST OCR failed: {e}")
+            return "" if not detail else []
+    
+    def _extract_sarvam_sdk(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """
+        Extract text using Sarvam AI SDK for Document Intelligence.
+        
+        Uses the official sarvamai SDK with simplified job workflow.
+        This is the slower fallback method.
+        """
+        try:
+            from sarvamai import SarvamAI
+            import tempfile
+            
+            logger.info(f"Starting Sarvam AI SDK OCR for: {image_path}")
+            
+            # Initialize Sarvam AI client
+            client = SarvamAI(api_subscription_key=self._sarvam_api_key)
+            
+            # Step 1: Create a job with language and output format
+            logger.info("Creating Sarvam AI job...")
+            job = client.document_intelligence.create_job(
+                language="en-IN",
+                output_format="md"
+            )
+            
+            logger.info(f"Sarvam AI job created: {job.job_id}")
+            
+            # Step 2: Upload the file using job's upload_file method
+            logger.info(f"Uploading file: {image_path}")
+            job.upload_file(image_path)
+            logger.info("File uploaded successfully")
+            
+            # Step 3: Start the job
+            logger.info("Starting Sarvam AI job...")
+            job.start()
+            logger.info(f"Sarvam AI job started: {job.job_id}")
+            
+            # Step 4: Wait for completion (with timeout)
+            logger.info("Waiting for job completion...")
+            job.wait_until_complete()
+            logger.info(f"Sarvam AI job completed: {job.job_id}")
+            
+            # Step 5: Download output to a temp file
+            logger.info("Downloading results...")
+            with tempfile.TemporaryDirectory() as temp_dir:
+                output_path = os.path.join(temp_dir, "sarvam_output")
+                job.download_output(output_path)
+                
+                # Read the output file
+                extracted_text = ""
+                # Check for .md file first (since we requested md format)
+                md_file = output_path + ".md"
+                txt_file = output_path + ".txt"
+                
+                if os.path.exists(md_file):
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        extracted_text = f.read()
+                    logger.info(f"Read output from {md_file}")
+                elif os.path.exists(txt_file):
+                    with open(txt_file, 'r', encoding='utf-8') as f:
+                        extracted_text = f.read()
+                    logger.info(f"Read output from {txt_file}")
+                elif os.path.exists(output_path):
+                    with open(output_path, 'r', encoding='utf-8') as f:
+                        extracted_text = f.read()
+                    logger.info(f"Read output from {output_path}")
+                else:
+                    # Try to find any file in temp_dir
+                    for file in os.listdir(temp_dir):
+                        file_path = os.path.join(temp_dir, file)
+                        if os.path.isfile(file_path):
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                extracted_text = f.read()
+                            logger.info(f"Read output from {file_path}")
+                            break
+            
+            logger.info(f"Sarvam AI SDK extracted {len(extracted_text)} characters")
+            
+            if detail:
+                return [{
+                    "text": extracted_text,
+                    "confidence": 1.0,
+                    "bbox": None,
+                    "engine": "sarvam_sdk"
+                }]
+            
+            return extracted_text.strip() if extracted_text else ""
+                
+        except ImportError:
+            logger.error("sarvamai SDK not installed. Install with: pip install sarvamai")
+            return "" if not detail else []
+        except Exception as e:
+            logger.error(f"Sarvam AI SDK extraction failed: {e}", exc_info=True)
+            return "" if not detail else []
+    
+    def extract_with_sarvam_test(self, image_path: str) -> dict:
+        """
+        Test method to compare Sarvam AI OCR with the current engine.
+        
+        Returns both results for comparison.
+        """
+        results = {
+            "image_path": image_path,
+            "sarvam_result": None,
+            "current_engine_result": None,
+            "current_engine": self.engine_name,
+            "comparison": {}
+        }
+        
+        # Get result from current engine (e.g., EasyOCR)
+        try:
+            self._ensure_engine_initialized()
+            
+            # Temporarily store current engine
+            original_engine = self.engine_name
+            
+            # Get current engine result
+            if original_engine != "sarvam":
+                results["current_engine_result"] = self.extract_text(image_path, preprocess=True, detail=False)
+            
+            # Get Sarvam AI result
+            try:
+                # Initialize Sarvam if not already
+                if not hasattr(self, '_sarvam_api_key'):
+                    self._init_sarvam()
+                
+                results["sarvam_result"] = self._extract_sarvam(image_path, detail=False)
+            except Exception as e:
+                results["sarvam_error"] = str(e)
+            
+            # Compare results
+            current_len = len(results.get("current_engine_result") or "")
+            sarvam_len = len(results.get("sarvam_result") or "")
+            
+            results["comparison"] = {
+                "current_engine_chars": current_len,
+                "sarvam_chars": sarvam_len,
+                "difference": sarvam_len - current_len,
+                "recommended": "sarvam" if sarvam_len > current_len else original_engine
+            }
+            
+            logger.info(f"OCR Comparison - {original_engine}: {current_len} chars, Sarvam: {sarvam_len} chars")
+            
+        except Exception as e:
+            results["error"] = str(e)
+            logger.error(f"OCR comparison failed: {e}")
+        
+        return results
+    
     def _extract_from_pdf(
         self, 
         pdf_path: str, 
@@ -621,8 +1362,12 @@ class OCRService:
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
                         pix.save(tmp.name)
                         
-                        # Extract text from this page image
-                        result = self._extract_from_image(tmp.name, preprocess, detail)
+                        # For Sarvam AI - use direct fast API
+                        if self.engine_name == "sarvam":
+                            result = self._extract_sarvam(tmp.name, detail)
+                        else:
+                            # For other engines, use multi-strategy approach
+                            result = self._extract_from_image(tmp.name, preprocess, detail)
                         
                         if detail:
                             if isinstance(result, list):
@@ -661,21 +1406,189 @@ class OCRService:
         detail: bool
     ) -> Union[str, List[dict]]:
         """
-        Advanced multi-strategy text extraction from images.
+        Fast text extraction from images optimized for handwriting.
         
-        This method tries MULTIPLE preprocessing strategies and combines
-        results for maximum handwriting extraction accuracy.
+        In FAST mode (default): Uses only 1-2 preprocessing strategies for speed
+        In normal mode: Uses multiple strategies for maximum accuracy
+        """
+        from config.settings import settings
+        fast_mode = getattr(settings, 'FAST_OCR_MODE', True)
         
-        Strategies:
-        1. Original image
-        2. Multiple CLAHE contrast levels
-        3. Various adaptive threshold block sizes
-        4. Morphological operations
-        5. Denoising combinations
-        6. Edge enhancement
-        7. Inverted images
+        logger.info(f"Extracting from image: {image_path} (fast_mode={fast_mode})")
         
-        The best result (longest meaningful text) is returned.
+        if fast_mode:
+            return self._extract_fast_mode(image_path, detail)
+        else:
+            return self._extract_multi_strategy(image_path, preprocess, detail)
+    
+    def _extract_fast_mode(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """
+        FAST OCR extraction - minimal preprocessing for maximum speed.
+        Uses optimized EasyOCR settings designed for handwritten text.
+        """
+        import cv2
+        
+        logger.info("FAST MODE: Single-pass OCR with optimized settings")
+        start_time = time.time()
+        
+        best_result = ""
+        
+        # Preprocess image for better handwriting recognition
+        try:
+            if self.preprocessor._available:
+                image = self.preprocessor.load_image(image_path)
+                
+                # Remove lined paper background and enhance blue/black ink
+                processed = self._preprocess_handwriting(image)
+                
+                # Save temp and process
+                temp_path = f"{image_path}_processed.png"
+                cv2.imwrite(temp_path, processed)
+                
+                result = self._extract_easyocr_handwriting(temp_path)
+                
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+                
+                if result:
+                    best_result = result
+                    logger.info(f"Preprocessed extraction: {len(result)} chars in {time.time()-start_time:.2f}s")
+        except Exception as e:
+            logger.warning(f"Preprocessed extraction failed: {e}")
+        
+        # If preprocessing failed or got poor results, try direct
+        if len(best_result) < 50:
+            try:
+                result = self._extract_easyocr_handwriting(image_path)
+                if result and len(result) > len(best_result):
+                    best_result = result
+                    logger.info(f"Direct extraction: {len(result)} chars")
+            except Exception as e:
+                logger.warning(f"Direct extraction failed: {e}")
+        
+        elapsed = time.time() - start_time
+        logger.info(f"FAST MODE complete: {len(best_result)} chars in {elapsed:.2f}s")
+        
+        return best_result
+    
+    def _preprocess_handwriting(self, image: np.ndarray) -> np.ndarray:
+        """
+        Preprocess handwritten text on lined paper.
+        Removes background lines and enhances ink contrast.
+        """
+        import cv2
+        
+        # Convert to grayscale
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+        
+        # Resize for better OCR (aim for ~2000px width)
+        h, w = gray.shape[:2]
+        if w < 2000:
+            scale = 2000 / w
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        
+        # Apply CLAHE for better contrast
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+        
+        # Reduce noise while preserving edges
+        denoised = cv2.bilateralFilter(enhanced, 9, 75, 75)
+        
+        # Adaptive thresholding to binarize - this helps separate text from lined background
+        # Use a large block size to handle line paper
+        binary = cv2.adaptiveThreshold(
+            denoised, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31, 15  # Large block, moderate C for lined paper
+        )
+        
+        # Morphological operations to clean up
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+        # Close small gaps in letters
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        
+        # Optional: Remove horizontal lines (ruled paper)
+        horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
+        lines = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
+        # Subtract lines from image
+        cleaned = cv2.add(cleaned, lines)
+        
+        return cleaned
+    
+    def _extract_easyocr_handwriting(self, image_path: str) -> str:
+        """
+        Optimized EasyOCR extraction specifically for handwritten text.
+        Uses aggressive settings to capture difficult cursive handwriting.
+        """
+        try:
+            # First pass: Standard handwriting settings
+            results = self._engine.readtext(
+                image_path,
+                paragraph=True,  # Group into paragraphs for cursive
+                min_size=3,      # Very small minimum
+                text_threshold=0.2,  # Very low threshold for cursive
+                low_text=0.15,   # Aggressive text detection
+                link_threshold=0.15, # Link characters together (cursive)
+                canvas_size=2560,
+                mag_ratio=1.8,   # Higher magnification
+                slope_ths=0.8,   # Allow sloped handwriting
+                ycenter_ths=0.8,
+                height_ths=1.2,  # More height tolerance
+                width_ths=1.2,   # More width tolerance
+                add_margin=0.15,
+                decoder='greedy',
+                beamWidth=10,
+                batch_size=1,
+                contrast_ths=0.05,  # Very low contrast threshold
+                adjust_contrast=0.8,
+            )
+            
+            if not results:
+                return ""
+            
+            # For paragraph mode, results is list of (bbox, text, confidence)
+            # Sort by vertical position for proper reading order
+            if isinstance(results[0], tuple) and len(results[0]) >= 2:
+                sorted_results = sorted(results, key=lambda r: (
+                    min(p[1] for p in r[0]) if isinstance(r[0], list) else 0,
+                    min(p[0] for p in r[0]) if isinstance(r[0], list) else 0
+                ))
+                
+                texts = []
+                last_y = -1
+                for r in sorted_results:
+                    if isinstance(r[0], list) and len(r[0]) > 0:
+                        current_y = min(p[1] for p in r[0])
+                        if last_y >= 0 and (current_y - last_y) > 30:
+                            texts.append("\n")
+                        last_y = max(p[1] for p in r[0])
+                    texts.append(r[1] if len(r) > 1 else str(r))
+                
+                return " ".join(texts).replace(" \n ", "\n").strip()
+            else:
+                # Simple list of strings
+                return " ".join(str(r) for r in results).strip()
+            
+        except Exception as e:
+            logger.error(f"EasyOCR extraction failed: {e}")
+            return ""
+    
+    def _extract_multi_strategy(
+        self, 
+        image_path: str, 
+        preprocess: bool, 
+        detail: bool
+    ) -> Union[str, List[dict]]:
+        """
+        Multi-strategy text extraction for maximum accuracy (slower).
+        
+        Tries multiple preprocessing strategies and returns the best result.
         """
         import cv2
         

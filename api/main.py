@@ -23,6 +23,11 @@ from config.settings import settings, setup_directories
 
 # Import routers
 from api.routes import upload, evaluation, results
+from api.routes import auth, admin, teachers, students
+from api.routes import community, grievance
+
+# Import auth service for default admin creation
+from api.services.auth_service import create_default_admin
 
 # ========== Logging Configuration ==========
 logging.basicConfig(
@@ -52,6 +57,15 @@ async def lifespan(app: FastAPI):
     # Setup directories
     setup_directories()
     logger.info("[OK] Directories initialized")
+    
+    # Initialize database and create default admin
+    from database.models import init_db
+    init_db()
+    logger.info("[OK] Database initialized")
+    
+    # Create default admin account
+    create_default_admin()
+    logger.info("[OK] Default admin checked/created")
     
     # NOTE: Models are loaded lazily on first request to reduce startup memory
     # This helps with free-tier hosting (512MB RAM limit)
@@ -169,6 +183,44 @@ app.include_router(
     tags=["Results"]
 )
 
+# ========== Authentication & User Management Routers ==========
+app.include_router(
+    auth.router,
+    prefix=f"{settings.API_PREFIX}/auth",
+    tags=["Authentication"]
+)
+
+app.include_router(
+    admin.router,
+    prefix=f"{settings.API_PREFIX}/admin",
+    tags=["Admin Management"]
+)
+
+app.include_router(
+    teachers.router,
+    prefix=f"{settings.API_PREFIX}/teacher",
+    tags=["Teacher Operations"]
+)
+
+app.include_router(
+    students.router,
+    prefix=f"{settings.API_PREFIX}/student",
+    tags=["Student Operations"]
+)
+
+# ========== Community & Grievance Routers ==========
+app.include_router(
+    community.router,
+    prefix=f"{settings.API_PREFIX}/community",
+    tags=["Community"]
+)
+
+app.include_router(
+    grievance.router,
+    prefix=f"{settings.API_PREFIX}/grievance",
+    tags=["Grievance"]
+)
+
 
 # ========== Static Files (for uploaded files) ==========
 if os.path.exists(settings.UPLOAD_DIR):
@@ -197,7 +249,13 @@ async def root():
         "endpoints": {
             "upload": f"{settings.API_PREFIX}/upload",
             "evaluate": f"{settings.API_PREFIX}/evaluate",
-            "results": f"{settings.API_PREFIX}/results"
+            "results": f"{settings.API_PREFIX}/results",
+            "auth": f"{settings.API_PREFIX}/auth",
+            "admin": f"{settings.API_PREFIX}/admin",
+            "teacher": f"{settings.API_PREFIX}/teacher",
+            "student": f"{settings.API_PREFIX}/student",
+            "community": f"{settings.API_PREFIX}/community",
+            "grievance": f"{settings.API_PREFIX}/grievance"
         }
     }
 
