@@ -29,6 +29,7 @@ import {
   Menu,
   MenuItem,
   Chip,
+  Tooltip,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -42,10 +43,13 @@ import {
   Logout as LogoutIcon,
   Person as PersonIcon,
   AdminPanelSettings as AdminIcon,
+  LightMode as LightModeIcon,
+  DarkMode as DarkModeIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth, ROLES } from '../context/AuthContext';
+import { useThemeMode } from '../context/ThemeContext';
 import AuthModal from './AuthModal';
 
 const MotionAppBar = motion(AppBar);
@@ -60,6 +64,7 @@ export default function Header() {
   const theme = useTheme();
   const navigate = useNavigate();
   const { user, isAuthenticated, signOut, hasRole } = useAuth();
+  const { mode, isDark, toggleTheme } = useThemeMode();
   
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -210,6 +215,34 @@ export default function Header() {
 
             {/* Desktop Auth Buttons */}
             <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 2, alignItems: 'center' }}>
+              {/* Theme Toggle */}
+              <Tooltip title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
+                <IconButton
+                  onClick={toggleTheme}
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 2,
+                    bgcolor: scrolled 
+                      ? alpha(isDark ? '#fbbf24' : '#6366f1', 0.1)
+                      : alpha('#fff', 0.15),
+                    color: scrolled 
+                      ? (isDark ? '#fbbf24' : '#6366f1')
+                      : 'white',
+                    backdropFilter: scrolled ? 'none' : 'blur(8px)',
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      bgcolor: scrolled 
+                        ? alpha(isDark ? '#fbbf24' : '#6366f1', 0.2)
+                        : alpha('#fff', 0.25),
+                      transform: 'rotate(30deg)',
+                    },
+                  }}
+                >
+                  {isDark ? <LightModeIcon /> : <DarkModeIcon />}
+                </IconButton>
+              </Tooltip>
+              
               {isAuthenticated ? (
                 <>
                   <Button
@@ -456,6 +489,25 @@ export default function Header() {
                 />
               </ListItem>
             ))}
+            {/* Theme Toggle in Mobile Menu */}
+            <ListItem 
+              button 
+              onClick={toggleTheme}
+              sx={{
+                borderRadius: 2,
+                mb: 0.5,
+                bgcolor: alpha(isDark ? '#fbbf24' : '#6366f1', 0.08),
+                '&:hover': { bgcolor: alpha(isDark ? '#fbbf24' : '#6366f1', 0.15) },
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: 40, color: isDark ? '#fbbf24' : '#6366f1' }}>
+                {isDark ? <LightModeIcon /> : <DarkModeIcon />}
+              </ListItemIcon>
+              <ListItemText 
+                primary={isDark ? 'Light Mode' : 'Dark Mode'}
+                primaryTypographyProps={{ fontWeight: 500 }}
+              />
+            </ListItem>
           </List>
 
           <Divider sx={{ my: 2 }} />

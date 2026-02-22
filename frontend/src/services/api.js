@@ -407,4 +407,129 @@ export const getGrievanceCategories = async () => {
   return response;
 };
 
+// ========== Student Management API ==========
+
+/**
+ * Get list of students (for teachers/admin)
+ */
+export const getStudents = async (page = 1, limit = 10, search = '', classId = '') => {
+  const params = { page, limit };
+  if (search) params.search = search;
+  if (classId) params.class_id = classId;
+  const response = await api.get('/teacher/students', { params });
+  return response;
+};
+
+/**
+ * Create a new student
+ */
+export const createStudent = async (data) => {
+  const response = await api.post('/teacher/students', data);
+  return response;
+};
+
+/**
+ * Update a student
+ */
+export const updateStudent = async (studentId, data) => {
+  const response = await api.put(`/teacher/students/${studentId}`, data);
+  return response;
+};
+
+/**
+ * Delete a student
+ */
+export const deleteStudent = async (studentId) => {
+  const response = await api.delete(`/teacher/students/${studentId}`);
+  return response;
+};
+
+/**
+ * Get student evaluations
+ */
+export const getStudentEvaluations = async (studentId) => {
+  const response = await api.get(`/teacher/students/${studentId}/evaluations`);
+  return response;
+};
+
+// ========== Teacher Management API (Admin) ==========
+
+/**
+ * Get list of teachers (for admin)
+ */
+export const getTeachers = async (page = 1, limit = 10, search = '') => {
+  const params = { page, limit };
+  if (search) params.search = search;
+  const response = await api.get('/admin/teachers', { params });
+  return response;
+};
+
+/**
+ * Create a new teacher
+ */
+export const createTeacher = async (data) => {
+  const response = await api.post('/admin/teachers', data);
+  return response;
+};
+
+/**
+ * Update a teacher
+ */
+export const updateTeacher = async (teacherId, data) => {
+  const response = await api.put(`/admin/teachers/${teacherId}`, data);
+  return response;
+};
+
+/**
+ * Delete a teacher
+ */
+export const deleteTeacher = async (teacherId) => {
+  const response = await api.delete(`/admin/teachers/${teacherId}`);
+  return response;
+};
+
+// ========== Classes API ==========
+
+/**
+ * Get list of classes
+ */
+export const getClasses = async () => {
+  const response = await api.get('/teacher/classes');
+  return response;
+};
+
+/**
+ * Create a new class
+ */
+export const createClass = async (data) => {
+  const response = await api.post('/teacher/classes', data);
+  return response;
+};
+
+// ========== Student Profile API ==========
+
+/**
+ * Get student's own profile
+ */
+export const getStudentProfile = async () => {
+  const response = await api.get('/student/profile');
+  return response;
+};
+
+/**
+ * Update student's own profile
+ */
+export const updateStudentProfile = async (data) => {
+  const response = await api.put('/student/profile', data);
+  return response;
+};
+
+/**
+ * Change password
+ */
+export const changePassword = async (data) => {
+  const response = await api.post('/student/change-password', data);
+  return response;
+};
+
 export default api;

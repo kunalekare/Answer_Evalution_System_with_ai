@@ -336,6 +336,7 @@ class Class(Base):
 
     def to_dict(self):
         return {
+            "id": self.id,
             "class_id": self.class_id,
             "name": self.name,
             "section": self.section,

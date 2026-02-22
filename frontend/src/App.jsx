@@ -11,13 +11,14 @@
  * - Role-based access (Student, Teacher, Admin)
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { ThemeProvider, createTheme, CssBaseline } from "@mui/material";
+import { ThemeProvider, CssBaseline, createTheme } from "@mui/material";
 import { Toaster } from "react-hot-toast";
 
 // Context
 import { AuthProvider, useAuth, ROLES } from "./context/AuthContext";
+import { ThemeContextProvider, useThemeMode } from "./context/ThemeContext";
 
 // Pages
 import LandingPage from "./pages/LandingPage";
@@ -29,116 +30,12 @@ import StudentDashboard from "./pages/StudentDashboard";
 import ChatBot from "./pages/ChatBot";
 import ManualChecking from "./pages/ManualChecking";
 import Community from "./pages/Community";
+import StudentManagement from "./pages/StudentManagement";
+import UserManagement from "./pages/UserManagement";
+import Profile from "./pages/Profile";
 
 // Components
 import Layout from "./components/Layout";
-
-// Create professional academic theme
-const theme = createTheme({
-  palette: {
-    mode: "light",
-    primary: {
-      main: "#1565c0",
-      light: "#5e92f3",
-      dark: "#003c8f",
-      contrastText: "#ffffff",
-    },
-    secondary: {
-      main: "#00897b",
-      light: "#4ebaaa",
-      dark: "#005b4f",
-    },
-    success: {
-      main: "#2e7d32",
-      light: "#60ad5e",
-      dark: "#005005",
-    },
-    warning: {
-      main: "#f9a825",
-      light: "#ffd95a",
-      dark: "#c17900",
-    },
-    error: {
-      main: "#c62828",
-      light: "#ff5f52",
-      dark: "#8e0000",
-    },
-    background: {
-      default: "#f5f7fa",
-      paper: "#ffffff",
-    },
-    text: {
-      primary: "#1a1a2e",
-      secondary: "#4a4a68",
-    },
-  },
-  typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h1: {
-      fontFamily: '"Poppins", sans-serif',
-      fontWeight: 700,
-    },
-    h2: {
-      fontFamily: '"Poppins", sans-serif',
-      fontWeight: 600,
-    },
-    h3: {
-      fontFamily: '"Poppins", sans-serif',
-      fontWeight: 600,
-    },
-    h4: {
-      fontFamily: '"Poppins", sans-serif',
-      fontWeight: 600,
-    },
-    h5: {
-      fontFamily: '"Poppins", sans-serif',
-      fontWeight: 500,
-    },
-    h6: {
-      fontFamily: '"Poppins", sans-serif',
-      fontWeight: 500,
-    },
-    button: {
-      textTransform: "none",
-      fontWeight: 500,
-    },
-  },
-  shape: {
-    borderRadius: 12,
-  },
-  components: {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-          padding: "10px 24px",
-          fontSize: "0.95rem",
-        },
-        contained: {
-          boxShadow: "0 4px 14px 0 rgba(0, 0, 0, 0.1)",
-          "&:hover": {
-            boxShadow: "0 6px 20px rgba(0, 0, 0, 0.15)",
-          },
-        },
-      },
-    },
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          borderRadius: 16,
-          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.08)",
-        },
-      },
-    },
-    MuiPaper: {
-      styleOverrides: {
-        root: {
-          borderRadius: 16,
-        },
-      },
-    },
-  },
-});
 
 // Protected Route Component
 function ProtectedRoute({ children, allowedRoles = [], requireAuth = true }) {
@@ -259,33 +156,66 @@ function AppRoutes() {
           </ProtectedRoute>
         } 
       />
+      
+      {/* Student Management - Teachers only */}
+      <Route 
+        path="/students" 
+        element={
+          <ProtectedRoute allowedRoles={[ROLES.TEACHER]}>
+            <Layout><StudentManagement /></Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      {/* User Management - Admins only */}
+      <Route 
+        path="/admin/users" 
+        element={
+          <ProtectedRoute allowedRoles={[ROLES.ADMIN]}>
+            <Layout><UserManagement /></Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      {/* Profile - Students only */}
+      <Route 
+        path="/profile" 
+        element={
+          <ProtectedRoute allowedRoles={[ROLES.STUDENT]}>
+            <Layout><Profile /></Layout>
+          </ProtectedRoute>
+        } 
+      />
     </Routes>
   );
 }
 
-function App() {
+// Inner app component that uses the theme from context
+function ThemedApp() {
+  const { mode } = useThemeMode();
+  
   return (
-    <ThemeProvider theme={theme}>
+    <>
       <CssBaseline />
       <Toaster
         position="top-right"
         toastOptions={{
           duration: 4000,
           style: {
-            background: "#333",
-            color: "#fff",
-            borderRadius: "10px",
+            background: mode === 'dark' ? '#334155' : '#333',
+            color: '#fff',
+            borderRadius: '10px',
           },
           success: {
             iconTheme: {
-              primary: "#4caf50",
-              secondary: "#fff",
+              primary: '#4ade80',
+              secondary: '#fff',
             },
           },
           error: {
             iconTheme: {
-              primary: "#f44336",
-              secondary: "#fff",
+              primary: '#f87171',
+              secondary: '#fff',
             },
           },
         }}
@@ -295,6 +225,98 @@ function App() {
           <AppRoutes />
         </AuthProvider>
       </Router>
+    </>
+  );
+}
+
+function App() {
+  return (
+    <ThemeContextProvider>
+      <ThemedAppWrapper />
+    </ThemeContextProvider>
+  );
+}
+
+// Wrapper component that applies the theme
+function ThemedAppWrapper() {
+  const { mode, isDark } = useThemeMode();
+  
+  const theme = useMemo(() => {
+    const lightPalette = {
+      mode: 'light',
+      primary: { main: '#6366f1', light: '#818cf8', dark: '#4f46e5' },
+      secondary: { main: '#8b5cf6', light: '#a78bfa', dark: '#7c3aed' },
+      success: { main: '#22c55e', light: '#4ade80', dark: '#16a34a' },
+      warning: { main: '#f59e0b', light: '#fbbf24', dark: '#d97706' },
+      error: { main: '#ef4444', light: '#f87171', dark: '#dc2626' },
+      info: { main: '#06b6d4', light: '#22d3ee', dark: '#0891b2' },
+      background: { default: '#f8fafc', paper: '#ffffff' },
+      text: { primary: '#1e293b', secondary: '#64748b' },
+      divider: 'rgba(0, 0, 0, 0.08)',
+    };
+    
+    const darkPalette = {
+      mode: 'dark',
+      primary: { main: '#818cf8', light: '#a5b4fc', dark: '#6366f1' },
+      secondary: { main: '#a78bfa', light: '#c4b5fd', dark: '#8b5cf6' },
+      success: { main: '#4ade80', light: '#86efac', dark: '#22c55e' },
+      warning: { main: '#fbbf24', light: '#fcd34d', dark: '#f59e0b' },
+      error: { main: '#f87171', light: '#fca5a5', dark: '#ef4444' },
+      info: { main: '#22d3ee', light: '#67e8f9', dark: '#06b6d4' },
+      background: { default: '#0f172a', paper: '#1e293b' },
+      text: { primary: '#f1f5f9', secondary: '#94a3b8' },
+      divider: 'rgba(255, 255, 255, 0.08)',
+    };
+    
+    const palette = isDark ? darkPalette : lightPalette;
+    
+    return createTheme({
+      palette,
+      typography: {
+        fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+        h1: { fontFamily: '"Poppins", sans-serif', fontWeight: 700 },
+        h2: { fontFamily: '"Poppins", sans-serif', fontWeight: 600 },
+        h3: { fontFamily: '"Poppins", sans-serif', fontWeight: 600 },
+        h4: { fontFamily: '"Poppins", sans-serif', fontWeight: 600 },
+        h5: { fontFamily: '"Poppins", sans-serif', fontWeight: 500 },
+        h6: { fontFamily: '"Poppins", sans-serif', fontWeight: 500 },
+        button: { textTransform: 'none', fontWeight: 500 },
+      },
+      shape: { borderRadius: 12 },
+      components: {
+        MuiButton: {
+          styleOverrides: {
+            root: { borderRadius: 8, padding: '10px 24px', fontSize: '0.95rem' },
+            contained: {
+              boxShadow: '0 4px 14px 0 rgba(0, 0, 0, 0.1)',
+              '&:hover': { boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)' },
+            },
+          },
+        },
+        MuiCard: {
+          styleOverrides: {
+            root: {
+              borderRadius: 16,
+              boxShadow: isDark ? '0 4px 20px rgba(0, 0, 0, 0.3)' : '0 4px 20px rgba(0, 0, 0, 0.08)',
+            },
+          },
+        },
+        MuiPaper: {
+          styleOverrides: { root: { borderRadius: 16, backgroundImage: 'none' } },
+        },
+        MuiAppBar: {
+          styleOverrides: { root: { backgroundImage: 'none' } },
+        },
+        MuiDrawer: {
+          styleOverrides: { paper: { backgroundImage: 'none' } },
+        },
+      },
+    });
+  }, [isDark]);
+  
+  return (
+    <ThemeProvider theme={theme}>
+      <ThemedApp />
     </ThemeProvider>
   );
 }

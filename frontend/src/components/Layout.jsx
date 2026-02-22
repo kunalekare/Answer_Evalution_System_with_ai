@@ -38,6 +38,7 @@ import {
   School as SchoolIcon,
   ChevronLeft as ChevronLeftIcon,
   LightMode as LightModeIcon,
+  DarkMode as DarkModeIcon,
   Notifications as NotificationsIcon,
   Logout as LogoutIcon,
   Person as PersonIcon,
@@ -47,8 +48,10 @@ import {
   SmartToy as ChatBotIcon,
   FactCheck as ManualCheckIcon,
   Forum as CommunityIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import { useAuth, ROLES } from '../context/AuthContext';
+import { useThemeMode } from '../context/ThemeContext';
 
 const drawerWidth = 280;
 
@@ -61,6 +64,7 @@ const getMenuItems = (role) => {
       { text: 'My Scores', icon: <GradeIcon />, path: '/student' },
       { text: 'AI Assistant', icon: <ChatBotIcon />, path: '/chatbot' },
       { text: 'Community', icon: <CommunityIcon />, path: '/community' },
+      { text: 'My Profile', icon: <PersonIcon />, path: '/profile' },
     ];
   }
   
@@ -72,6 +76,12 @@ const getMenuItems = (role) => {
       { text: 'AI Assistant', icon: <ChatBotIcon />, path: '/chatbot' },
       { text: 'Community', icon: <CommunityIcon />, path: '/community' },
       { text: 'History', icon: <HistoryIcon />, path: '/history' }
+    );
+  }
+  
+  if (role === ROLES.TEACHER) {
+    baseItems.push(
+      { text: 'Student Management', icon: <PeopleIcon />, path: '/students' }
     );
   }
   
@@ -102,6 +112,7 @@ function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut, hasRole } = useAuth();
+  const { mode, isDark, toggleTheme } = useThemeMode();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
@@ -272,6 +283,30 @@ function Layout({ children }) {
       {/* Bottom Section */}
       <Box sx={{ p: 2 }}>
         <Divider sx={{ mb: 2 }} />
+        {/* Theme Toggle in Sidebar */}
+        <ListItem disablePadding sx={{ mb: 1 }}>
+          <ListItemButton
+            onClick={toggleTheme}
+            sx={{
+              borderRadius: 2,
+              py: 1.5,
+              bgcolor: alpha(isDark ? '#fbbf24' : '#6366f1', 0.08),
+              '&:hover': {
+                bgcolor: alpha(isDark ? '#fbbf24' : '#6366f1', 0.15),
+              },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 44, color: isDark ? '#fbbf24' : '#6366f1' }}>
+              {isDark ? <LightModeIcon /> : <DarkModeIcon />}
+            </ListItemIcon>
+            {!collapsed && (
+              <ListItemText 
+                primary={isDark ? 'Light Mode' : 'Dark Mode'} 
+                primaryTypographyProps={{ fontWeight: 500 }}
+              />
+            )}
+          </ListItemButton>
+        </ListItem>
         <ListItem disablePadding sx={{ mb: 1 }}>
           <ListItemButton
             onClick={handleGoHome}
@@ -361,9 +396,30 @@ function Layout({ children }) {
           </Box>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, md: 1 } }}>
-            <Tooltip title="Toggle theme">
-              <IconButton size="small" sx={{ display: { xs: 'none', sm: 'flex' } }}>
-                <LightModeIcon />
+            {/* Theme Toggle Button */}
+            <Tooltip title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
+              <IconButton 
+                onClick={toggleTheme}
+                size="small" 
+                sx={{ 
+                  display: { xs: 'none', sm: 'flex' },
+                  width: 40,
+                  height: 40,
+                  borderRadius: 2,
+                  bgcolor: alpha(isDark ? '#fbbf24' : '#6366f1', 0.1),
+                  color: isDark ? '#fbbf24' : '#6366f1',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    bgcolor: alpha(isDark ? '#fbbf24' : '#6366f1', 0.2),
+                    transform: 'rotate(30deg)',
+                  },
+                }}
+              >
+                {isDark ? (
+                  <LightModeIcon sx={{ fontSize: 20 }} />
+                ) : (
+                  <DarkModeIcon sx={{ fontSize: 20 }} />
+                )}
               </IconButton>
             </Tooltip>
             <Tooltip title="Notifications">

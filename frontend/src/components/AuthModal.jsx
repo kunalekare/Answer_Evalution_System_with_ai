@@ -104,11 +104,11 @@ export default function AuthModal({ open, onClose, initialMode = 'signin' }) {
 
     try {
       if (mode === 'signin') {
-        const result = signIn(formData.email, formData.password);
+        const result = await signIn(formData.email, formData.password);
         if (result.success) {
           onClose();
         } else {
-          setError(result.error);
+          setError(result.error || 'Login failed');
         }
       } else {
         // Validation for sign up
@@ -133,7 +133,7 @@ export default function AuthModal({ open, onClose, initialMode = 'signin' }) {
           return;
         }
 
-        const result = signUp(
+        const result = await signUp(
           formData.name,
           formData.email,
           formData.password,

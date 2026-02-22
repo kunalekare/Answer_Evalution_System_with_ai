@@ -31,7 +31,9 @@ import {
   Switch,
   FormControlLabel,
   Skeleton,
+  useTheme,
 } from '@mui/material';
+import { useThemeMode } from '../context/ThemeContext';
 import {
   CloudUpload as UploadIcon,
   Image as ImageIcon,
@@ -66,6 +68,8 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 function Evaluate() {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const { isDark } = useThemeMode();
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -428,13 +432,13 @@ function Evaluate() {
               textAlign: 'center',
               cursor: 'pointer',
               border: '2px dashed',
-              borderColor: isDragActive ? 'primary.main' : 'grey.400',
-              bgcolor: isDragActive ? 'primary.50' : 'grey.50',
+              borderColor: isDragActive ? 'primary.main' : isDark ? 'grey.600' : 'grey.400',
+              bgcolor: isDragActive ? (isDark ? 'rgba(99, 102, 241, 0.1)' : 'primary.50') : (isDark ? 'rgba(255,255,255,0.03)' : 'grey.50'),
               borderRadius: 2,
               transition: 'all 0.2s ease',
               '&:hover': {
                 borderColor: 'primary.main',
-                bgcolor: 'primary.50',
+                bgcolor: isDark ? 'rgba(99, 102, 241, 0.1)' : 'primary.50',
                 transform: 'scale(1.01)',
               },
             }}
@@ -442,21 +446,21 @@ function Evaluate() {
             <UploadIcon
               sx={{
                 fontSize: { xs: 40, md: 56 },
-                color: isDragActive ? 'primary.main' : 'grey.500',
+                color: isDragActive ? 'primary.main' : isDark ? 'grey.400' : 'grey.500',
                 mb: { xs: 1, md: 2 },
               }}
             />
-            <Typography variant="h6" fontWeight={500} gutterBottom sx={{ fontSize: { xs: '0.9rem', md: '1.25rem' } }}>
+            <Typography variant="h6" fontWeight={500} gutterBottom sx={{ fontSize: { xs: '0.9rem', md: '1.25rem' }, color: isDark ? 'grey.300' : 'text.primary' }}>
               {isDragActive ? 'Drop the file here!' : 'Drag & drop file here'}
             </Typography>
             <Typography variant="body1" color="primary" fontWeight={500} sx={{ mb: { xs: 1, md: 2 }, fontSize: { xs: '0.8rem', md: '1rem' } }}>
               or click to browse
             </Typography>
             <Box sx={{ mt: { xs: 1, md: 2 } }}>
-              <Chip label="PDF" size="small" sx={{ mr: 0.5, mb: 0.5, fontSize: { xs: '0.65rem', md: '0.8rem' } }} />
-              <Chip label="PNG" size="small" sx={{ mr: 0.5, mb: 0.5, fontSize: { xs: '0.65rem', md: '0.8rem' } }} />
-              <Chip label="JPG" size="small" sx={{ mr: 0.5, mb: 0.5, fontSize: { xs: '0.65rem', md: '0.8rem' } }} />
-              <Chip label="TIFF" size="small" sx={{ mb: 0.5, fontSize: { xs: '0.65rem', md: '0.8rem' } }} />
+              <Chip label="PDF" size="small" variant={isDark ? 'outlined' : 'filled'} sx={{ mr: 0.5, mb: 0.5, fontSize: { xs: '0.65rem', md: '0.8rem' } }} />
+              <Chip label="PNG" size="small" variant={isDark ? 'outlined' : 'filled'} sx={{ mr: 0.5, mb: 0.5, fontSize: { xs: '0.65rem', md: '0.8rem' } }} />
+              <Chip label="JPG" size="small" variant={isDark ? 'outlined' : 'filled'} sx={{ mr: 0.5, mb: 0.5, fontSize: { xs: '0.65rem', md: '0.8rem' } }} />
+              <Chip label="TIFF" size="small" variant={isDark ? 'outlined' : 'filled'} sx={{ mb: 0.5, fontSize: { xs: '0.65rem', md: '0.8rem' } }} />
             </Box>
           </Paper>
         )}
@@ -581,16 +585,16 @@ function Evaluate() {
                   elevation={0} 
                   sx={{ 
                     p: 3, 
-                    bgcolor: 'success.50', 
+                    bgcolor: isDark ? 'rgba(34, 197, 94, 0.1)' : 'success.50', 
                     border: '1px solid',
-                    borderColor: 'success.200',
+                    borderColor: isDark ? 'rgba(34, 197, 94, 0.3)' : 'success.200',
                     borderRadius: 2,
                     height: '100%'
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                     <TextIcon color="success" />
-                    <Typography variant="h6" fontWeight={600} color="success.dark">
+                    <Typography variant="h6" fontWeight={600} color={isDark ? 'success.light' : 'success.dark'}>
                       Model Answer (Extracted)
                     </Typography>
                   </Box>
@@ -618,7 +622,7 @@ function Evaluate() {
                     }}
                     variant="outlined"
                     sx={{ 
-                      bgcolor: 'white',
+                      bgcolor: isDark ? 'rgba(255,255,255,0.05)' : 'white',
                       '& .MuiOutlinedInput-root': {
                         fontFamily: 'monospace',
                         fontSize: '0.9rem',
@@ -635,16 +639,16 @@ function Evaluate() {
                   elevation={0} 
                   sx={{ 
                     p: 3, 
-                    bgcolor: 'primary.50', 
+                    bgcolor: isDark ? 'rgba(99, 102, 241, 0.1)' : 'primary.50', 
                     border: '1px solid',
-                    borderColor: 'primary.200',
+                    borderColor: isDark ? 'rgba(99, 102, 241, 0.3)' : 'primary.200',
                     borderRadius: 2,
                     height: '100%'
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                     <TextIcon color="primary" />
-                    <Typography variant="h6" fontWeight={600} color="primary.dark">
+                    <Typography variant="h6" fontWeight={600} color={isDark ? 'primary.light' : 'primary.dark'}>
                       Student Answer (Extracted)
                     </Typography>
                   </Box>
@@ -672,7 +676,7 @@ function Evaluate() {
                     }}
                     variant="outlined"
                     sx={{ 
-                      bgcolor: 'white',
+                      bgcolor: isDark ? 'rgba(255,255,255,0.05)' : 'white',
                       '& .MuiOutlinedInput-root': {
                         fontFamily: 'monospace',
                         fontSize: '0.9rem',

@@ -1,165 +1,191 @@
 /**
- * Community Page
- * ===============
- * WhatsApp-like Community System with:
- * - Community management (Admin → Teachers, Teachers → Students)
- * - Group chat functionality
- * - Grievance handling
- * - Announcements
+ * Community Page - AssessIQ
+ * ==========================
+ * Professional WhatsApp-like community management with grievance system.
+ * 
+ * Role-based features:
+ * - Admin: Create admin-teacher communities, manage all grievances
+ * - Teacher: Create teacher-student communities, handle student grievances
+ * - Student: Join communities, submit grievances
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
-  Grid,
-  Paper,
   Typography,
-  List,
-  ListItem,
-  ListItemAvatar,
-  ListItemText,
-  ListItemButton,
-  Avatar,
-  TextField,
-  IconButton,
+  Paper,
+  Grid,
+  Card,
+  CardContent,
   Button,
-  Divider,
-  Chip,
-  Badge,
+  IconButton,
+  TextField,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Tab,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
+  ListItemSecondaryAction,
+  Avatar,
+  Chip,
+  Badge,
   Tabs,
-  Menu,
+  Tab,
+  Divider,
   MenuItem,
-  Tooltip,
+  InputAdornment,
   CircularProgress,
   Alert,
-  InputAdornment,
-  Card,
-  CardContent,
+  Tooltip,
   FormControl,
   InputLabel,
   Select,
   Checkbox,
-  ListItemIcon,
-  alpha,
-  useTheme,
-  useMediaQuery,
+  ListItemButton,
+  Skeleton,
 } from '@mui/material';
 import {
-  Send as SendIcon,
-  AttachFile as AttachIcon,
-  Search as SearchIcon,
   Add as AddIcon,
-  MoreVert as MoreIcon,
-  Group as GroupIcon,
+  Send as SendIcon,
+  Groups as GroupsIcon,
   Person as PersonIcon,
-  Campaign as AnnouncementIcon,
-  ReportProblem as GrievanceIcon,
+  Search as SearchIcon,
+  MoreVert as MoreVertIcon,
+  AttachFile as AttachFileIcon,
+  Delete as DeleteIcon,
+  Report as ReportIcon,
   CheckCircle as ResolvedIcon,
   Pending as PendingIcon,
-  ArrowUpward as EscalateIcon,
+  Warning as WarningIcon,
+  School as SchoolIcon,
+  AdminPanelSettings as AdminIcon,
   Close as CloseIcon,
-  PushPin as PinIcon,
-  Delete as DeleteIcon,
-  Reply as ReplyIcon,
-  ArrowBack as BackIcon,
-  FilterList as FilterIcon,
   Refresh as RefreshIcon,
-  InsertDriveFile as FileIcon,
 } from '@mui/icons-material';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../context/AuthContext';
+import {
+  getCommunities,
+  createCommunity,
+  getCommunity,
+  deleteCommunity,
+  addCommunityMembers,
+  removeCommunityMember,
+  getCommunityMessages,
+  sendCommunityMessage,
+  getAvailableMembers,
+  getGrievances,
+  createGrievance,
+  getGrievance,
+  updateGrievanceStatus,
+  addGrievanceResponse,
+  getGrievanceStats,
+} from '../services/api';
 import toast from 'react-hot-toast';
-import { useAuth, ROLES } from '../context/AuthContext';
-import * as api from '../services/api';
 
-// Tab Panel Component
-function TabPanel({ children, value, index, ...other }) {
+// ========== Constants ==========
+const ROLES = { ADMIN: 'admin', TEACHER: 'teacher', STUDENT: 'student' };
+const GRIEVANCE_CATEGORIES = ['Academic', 'Behavioral', 'Technical', 'Administrative', 'Other'];
+const GRIEVANCE_PRIORITIES = [
+  { value: 'low', label: 'Low', color: 'success' },
+  { value: 'medium', label: 'Medium', color: 'info' },
+  { value: 'high', label: 'High', color: 'warning' },
+  { value: 'urgent', label: 'Urgent', color: 'error' },
+];
+const GRIEVANCE_STATUSES = [
+  { value: 'pending', label: 'Pending', color: 'warning', icon: PendingIcon },
+  { value: 'in_review', label: 'In Review', color: 'info', icon: SearchIcon },
+  { value: 'resolved', label: 'Resolved', color: 'success', icon: ResolvedIcon },
+  { value: 'rejected', label: 'Rejected', color: 'error', icon: CloseIcon },
+  { value: 'escalated', label: 'Escalated', color: 'warning', icon: WarningIcon },
+];
+
+// ========== Helper Components ==========
+const StatusChip = ({ status }) => {
+  const statusInfo = GRIEVANCE_STATUSES.find(s => s.value === status) || GRIEVANCE_STATUSES[0];
+  const IconComp = statusInfo.icon;
   return (
-    <div hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ height: '100%' }}>{children}</Box>}
-    </div>
+    <Chip
+      size="small"
+      label={statusInfo.label}
+      color={statusInfo.color}
+      icon={<IconComp fontSize="small" />}
+      sx={{ fontWeight: 500 }}
+    />
   );
-}
-
-// Status Colors
-const statusColors = {
-  pending: { color: '#f59e0b', bg: '#fef3c7' },
-  in_review: { color: '#3b82f6', bg: '#dbeafe' },
-  resolved: { color: '#10b981', bg: '#d1fae5' },
-  rejected: { color: '#ef4444', bg: '#fee2e2' },
-  escalated: { color: '#8b5cf6', bg: '#ede9fe' },
 };
 
-const priorityColors = {
-  low: { color: '#6b7280', bg: '#f3f4f6' },
-  medium: { color: '#f59e0b', bg: '#fef3c7' },
-  high: { color: '#ef4444', bg: '#fee2e2' },
-  urgent: { color: '#dc2626', bg: '#fecaca' },
+const PriorityChip = ({ priority }) => {
+  const priorityInfo = GRIEVANCE_PRIORITIES.find(p => p.value === priority) || GRIEVANCE_PRIORITIES[1];
+  return (
+    <Chip
+      size="small"
+      label={priorityInfo.label}
+      color={priorityInfo.color}
+      variant="outlined"
+      sx={{ fontWeight: 500 }}
+    />
+  );
 };
 
-function Community() {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const { user } = useAuth();
-  const messagesEndRef = useRef(null);
-  const fileInputRef = useRef(null);
-
-  // Main state
-  const [tabValue, setTabValue] = useState(0);
+// ========== Main Community Component ==========
+export default function Community() {
+  const { user, hasRole } = useAuth();
+  const [activeTab, setActiveTab] = useState(0);
+  const [loading, setLoading] = useState(true);
+  
+  // Communities state
   const [communities, setCommunities] = useState([]);
   const [selectedCommunity, setSelectedCommunity] = useState(null);
+  const [communityDetails, setCommunityDetails] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [messageInput, setMessageInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [sendingMessage, setSendingMessage] = useState(false);
-
-  // Grievance state
+  const [newMessage, setNewMessage] = useState('');
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  
+  // Grievances state
   const [grievances, setGrievances] = useState([]);
   const [selectedGrievance, setSelectedGrievance] = useState(null);
   const [grievanceStats, setGrievanceStats] = useState(null);
-  const [grievanceFilter, setGrievanceFilter] = useState('all');
-
+  
   // Dialogs
-  const [createCommunityOpen, setCreateCommunityOpen] = useState(false);
-  const [addMembersOpen, setAddMembersOpen] = useState(false);
-  const [createGrievanceOpen, setCreateGrievanceOpen] = useState(false);
-  const [grievanceDetailOpen, setGrievanceDetailOpen] = useState(false);
-
-  // Forms
-  const [newCommunity, setNewCommunity] = useState({ name: '', description: '', community_type: 'teacher_student' });
+  const [createCommunityDialog, setCreateCommunityDialog] = useState(false);
+  const [createGrievanceDialog, setCreateGrievanceDialog] = useState(false);
+  const [addMembersDialog, setAddMembersDialog] = useState(false);
+  const [grievanceDetailDialog, setGrievanceDetailDialog] = useState(false);
+  const [communityInfoDialog, setCommunityInfoDialog] = useState(false);
+  
+  // Form states
+  const [communityForm, setCommunityForm] = useState({
+    name: '',
+    description: '',
+    community_type: hasRole(ROLES.ADMIN) ? 'admin_teacher' : 'teacher_student',
+    allow_member_posts: true,
+    allow_file_sharing: true,
+  });
+  const [grievanceForm, setGrievanceForm] = useState({
+    subject: '',
+    description: '',
+    category: '',
+    priority: 'medium',
+    community_id: null,
+  });
+  
+  // Available members for adding
   const [availableMembers, setAvailableMembers] = useState([]);
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [memberSearch, setMemberSearch] = useState('');
-  const [newGrievance, setNewGrievance] = useState({ subject: '', description: '', category: 'academic', priority: 'medium' });
-  const [grievanceResponse, setGrievanceResponse] = useState('');
+  
+  // Refs
+  const messagesEndRef = useRef(null);
+  const messageInputRef = useRef(null);
 
-  // Menu
-  const [menuAnchor, setMenuAnchor] = useState(null);
-
-  // Mobile view state
-  const [mobileShowChat, setMobileShowChat] = useState(false);
-
-  // Fetch communities
-  useEffect(() => {
-    fetchCommunities();
-    fetchGrievances();
-    fetchGrievanceStats();
-  }, []);
-
-  // Auto-scroll to bottom of messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Fetch functions
-  const fetchCommunities = async () => {
+  // ========== Data Fetching ==========
+  const fetchCommunities = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await api.getCommunities();
+      const response = await getCommunities();
       if (response.success) {
         setCommunities(response.data || []);
       }
@@ -169,263 +195,313 @@ function Community() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchMessages = async (communityId) => {
+  const fetchGrievances = useCallback(async () => {
     try {
-      const response = await api.getCommunityMessages(communityId);
-      if (response.success) {
-        setMessages(response.data || []);
-      }
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-    }
-  };
-
-  const fetchGrievances = async () => {
-    try {
-      const filters = grievanceFilter !== 'all' ? { status_filter: grievanceFilter } : {};
-      const response = await api.getGrievances(1, 50, filters);
+      const response = await getGrievances(1, 50, {});
       if (response.success) {
         setGrievances(response.data || []);
       }
     } catch (error) {
       console.error('Error fetching grievances:', error);
     }
-  };
+  }, []);
 
-  const fetchGrievanceStats = async () => {
+  const fetchGrievanceStats = useCallback(async () => {
     try {
-      const response = await api.getGrievanceStats();
+      const response = await getGrievanceStats();
       if (response.success) {
         setGrievanceStats(response.data);
       }
     } catch (error) {
       console.error('Error fetching grievance stats:', error);
     }
-  };
+  }, []);
 
-  const fetchAvailableMembers = async (communityId, search = '') => {
+  const fetchCommunityDetails = useCallback(async (communityId) => {
     try {
-      const response = await api.getAvailableMembers(communityId, search);
+      const response = await getCommunity(communityId);
+      if (response.success) {
+        setCommunityDetails(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching community details:', error);
+    }
+  }, []);
+
+  const fetchMessages = useCallback(async (communityId) => {
+    if (!communityId) return;
+    try {
+      setLoadingMessages(true);
+      const response = await getCommunityMessages(communityId);
+      if (response.success) {
+        setMessages(response.data || []);
+        setTimeout(() => scrollToBottom(), 100);
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, []);
+
+  const fetchAvailableMembers = useCallback(async (communityId, search = '') => {
+    try {
+      const response = await getAvailableMembers(communityId, search);
       if (response.success) {
         setAvailableMembers(response.data || []);
       }
     } catch (error) {
       console.error('Error fetching available members:', error);
     }
+  }, []);
+
+  // ========== Effects ==========
+  useEffect(() => {
+    fetchCommunities();
+    fetchGrievances();
+    if (hasRole(ROLES.ADMIN) || hasRole(ROLES.TEACHER)) {
+      fetchGrievanceStats();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (selectedCommunity) {
+      fetchCommunityDetails(selectedCommunity.community_id);
+      fetchMessages(selectedCommunity.community_id);
+    }
+  }, [selectedCommunity, fetchCommunityDetails, fetchMessages]);
+
+  // ========== Handlers ==========
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Event handlers
-  const handleSelectCommunity = async (community) => {
+  const handleSelectCommunity = (community) => {
     setSelectedCommunity(community);
-    if (isMobile) setMobileShowChat(true);
-    await fetchMessages(community.community_id);
-  };
-
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !selectedCommunity) return;
-
-    try {
-      setSendingMessage(true);
-      const response = await api.sendCommunityMessage(
-        selectedCommunity.community_id,
-        messageInput.trim()
-      );
-      if (response.success) {
-        setMessages([...messages, response.data]);
-        setMessageInput('');
-      }
-    } catch (error) {
-      toast.error('Failed to send message');
-    } finally {
-      setSendingMessage(false);
-    }
-  };
-
-  const handleSendAnnouncement = async () => {
-    if (!messageInput.trim() || !selectedCommunity) return;
-
-    try {
-      setSendingMessage(true);
-      const response = await api.sendCommunityMessage(
-        selectedCommunity.community_id,
-        messageInput.trim(),
-        'announcement'
-      );
-      if (response.success) {
-        setMessages([...messages, response.data]);
-        setMessageInput('');
-        toast.success('Announcement sent!');
-      }
-    } catch (error) {
-      toast.error('Failed to send announcement');
-    } finally {
-      setSendingMessage(false);
-    }
-  };
-
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file || !selectedCommunity) return;
-
-    try {
-      setSendingMessage(true);
-      const response = await api.sendCommunityFileMessage(
-        selectedCommunity.community_id,
-        file
-      );
-      if (response.success) {
-        setMessages([...messages, response.data]);
-        toast.success('File sent!');
-      }
-    } catch (error) {
-      toast.error('Failed to send file');
-    } finally {
-      setSendingMessage(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
   };
 
   const handleCreateCommunity = async () => {
+    if (!communityForm.name.trim()) {
+      toast.error('Community name is required');
+      return;
+    }
     try {
-      const response = await api.createCommunity(newCommunity);
+      const response = await createCommunity(communityForm);
       if (response.success) {
-        toast.success('Community created!');
-        setCreateCommunityOpen(false);
-        setNewCommunity({ name: '', description: '', community_type: 'teacher_student' });
+        toast.success('Community created successfully');
+        setCreateCommunityDialog(false);
+        setCommunityForm({
+          name: '',
+          description: '',
+          community_type: hasRole(ROLES.ADMIN) ? 'admin_teacher' : 'teacher_student',
+          allow_member_posts: true,
+          allow_file_sharing: true,
+        });
         fetchCommunities();
       }
     } catch (error) {
+      console.error('Error creating community:', error);
       toast.error(error.message || 'Failed to create community');
     }
   };
 
-  const handleAddMembers = async () => {
-    if (selectedMembers.length === 0) return;
-
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !selectedCommunity) return;
     try {
-      const response = await api.addCommunityMembers(
-        selectedCommunity.community_id,
-        selectedMembers
-      );
+      const response = await sendCommunityMessage(selectedCommunity.community_id, newMessage);
       if (response.success) {
-        toast.success(`Added ${response.data.added.length} members`);
-        setAddMembersOpen(false);
+        setNewMessage('');
+        fetchMessages(selectedCommunity.community_id);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error('Failed to send message');
+    }
+  };
+
+  const handleAddMembers = async () => {
+    if (selectedMembers.length === 0) {
+      toast.error('Please select at least one member');
+      return;
+    }
+    try {
+      const response = await addCommunityMembers(selectedCommunity.community_id, selectedMembers);
+      if (response.success) {
+        toast.success('Members added successfully');
+        setAddMembersDialog(false);
         setSelectedMembers([]);
+        fetchCommunityDetails(selectedCommunity.community_id);
+      }
+    } catch (error) {
+      console.error('Error adding members:', error);
+      toast.error(error.message || 'Failed to add members');
+    }
+  };
+
+  const handleRemoveMember = async (memberId) => {
+    if (!window.confirm('Are you sure you want to remove this member?')) return;
+    try {
+      const response = await removeCommunityMember(selectedCommunity.community_id, memberId);
+      if (response.success) {
+        toast.success('Member removed');
+        fetchCommunityDetails(selectedCommunity.community_id);
+      }
+    } catch (error) {
+      console.error('Error removing member:', error);
+      toast.error('Failed to remove member');
+    }
+  };
+
+  const handleDeleteCommunity = async () => {
+    if (!window.confirm('Are you sure you want to delete this community? This action cannot be undone.')) return;
+    try {
+      const response = await deleteCommunity(selectedCommunity.community_id);
+      if (response.success) {
+        toast.success('Community deleted');
+        setSelectedCommunity(null);
+        setCommunityDetails(null);
         fetchCommunities();
       }
     } catch (error) {
-      toast.error('Failed to add members');
+      console.error('Error deleting community:', error);
+      toast.error('Failed to delete community');
     }
   };
 
   const handleCreateGrievance = async () => {
+    if (!grievanceForm.subject.trim() || !grievanceForm.description.trim()) {
+      toast.error('Subject and description are required');
+      return;
+    }
     try {
-      const response = await api.createGrievance(newGrievance);
+      const response = await createGrievance(grievanceForm);
       if (response.success) {
-        toast.success('Grievance submitted!');
-        setCreateGrievanceOpen(false);
-        setNewGrievance({ subject: '', description: '', category: 'academic', priority: 'medium' });
+        toast.success('Grievance submitted successfully');
+        setCreateGrievanceDialog(false);
+        setGrievanceForm({
+          subject: '',
+          description: '',
+          category: '',
+          priority: 'medium',
+          community_id: null,
+        });
         fetchGrievances();
-        fetchGrievanceStats();
+        if (hasRole(ROLES.ADMIN) || hasRole(ROLES.TEACHER)) {
+          fetchGrievanceStats();
+        }
       }
     } catch (error) {
+      console.error('Error creating grievance:', error);
       toast.error(error.message || 'Failed to submit grievance');
     }
   };
 
-  const handleGrievanceStatusChange = async (grievanceId, status, resolution = null) => {
+  const handleViewGrievance = async (grievance) => {
     try {
-      const response = await api.updateGrievanceStatus(grievanceId, status, resolution);
+      const response = await getGrievance(grievance.grievance_id);
       if (response.success) {
-        toast.success(`Status updated to ${status}`);
-        fetchGrievances();
-        fetchGrievanceStats();
-        if (selectedGrievance) {
-          const updated = await api.getGrievance(grievanceId);
-          if (updated.success) setSelectedGrievance(updated.data);
-        }
+        setSelectedGrievance(response.data);
+        setGrievanceDetailDialog(true);
       }
     } catch (error) {
-      toast.error('Failed to update status');
+      console.error('Error fetching grievance details:', error);
+      toast.error('Failed to load grievance details');
     }
   };
 
-  const handleAddGrievanceResponse = async () => {
-    if (!grievanceResponse.trim() || !selectedGrievance) return;
-
+  const handleUpdateGrievanceStatus = async (grievanceId, status, resolution = null, escalationReason = null) => {
     try {
-      const response = await api.addGrievanceResponse(
-        selectedGrievance.grievance_id,
-        grievanceResponse.trim()
-      );
+      const response = await updateGrievanceStatus(grievanceId, status, resolution, escalationReason);
       if (response.success) {
-        toast.success('Response added');
-        setGrievanceResponse('');
-        const updated = await api.getGrievance(selectedGrievance.grievance_id);
-        if (updated.success) setSelectedGrievance(updated.data);
+        toast.success(`Grievance ${status === 'resolved' ? 'resolved' : status === 'escalated' ? 'escalated' : 'updated'}`);
+        fetchGrievances();
+        if (hasRole(ROLES.ADMIN) || hasRole(ROLES.TEACHER)) {
+          fetchGrievanceStats();
+        }
+        // Refresh the detail view
+        if (selectedGrievance && selectedGrievance.grievance_id === grievanceId) {
+          const detailResponse = await getGrievance(grievanceId);
+          if (detailResponse.success) {
+            setSelectedGrievance(detailResponse.data);
+          }
+        }
       }
     } catch (error) {
+      console.error('Error updating grievance:', error);
+      toast.error('Failed to update grievance');
+    }
+  };
+
+  const handleAddResponse = async (grievanceId, content) => {
+    try {
+      const response = await addGrievanceResponse(grievanceId, content);
+      if (response.success) {
+        toast.success('Response added');
+        // Refresh the detail view
+        const detailResponse = await getGrievance(grievanceId);
+        if (detailResponse.success) {
+          setSelectedGrievance(detailResponse.data);
+        }
+      }
+    } catch (error) {
+      console.error('Error adding response:', error);
       toast.error('Failed to add response');
     }
   };
 
-  // Render community list
+  const handleOpenAddMembers = () => {
+    setAddMembersDialog(true);
+    fetchAvailableMembers(selectedCommunity.community_id);
+  };
+
+  const toggleMemberSelection = (memberId) => {
+    setSelectedMembers(prev => 
+      prev.includes(memberId) 
+        ? prev.filter(id => id !== memberId)
+        : [...prev, memberId]
+    );
+  };
+
+  // ========== Render Functions ==========
   const renderCommunityList = () => (
-    <Paper 
-      sx={{ 
-        height: '100%', 
-        display: 'flex', 
-        flexDirection: 'column',
-        borderRadius: 2,
-        overflow: 'hidden'
-      }}
-    >
-      {/* Header */}
+    <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="h6" fontWeight={600}>
+          <GroupsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
           Communities
         </Typography>
-        {(user?.role === 'admin' || user?.role === 'teacher') && (
+        {(hasRole(ROLES.ADMIN) || hasRole(ROLES.TEACHER)) && (
           <Tooltip title="Create Community">
-            <IconButton onClick={() => setCreateCommunityOpen(true)} color="primary">
+            <IconButton color="primary" onClick={() => setCreateCommunityDialog(true)}>
               <AddIcon />
             </IconButton>
           </Tooltip>
         )}
       </Box>
-
-      {/* Search */}
-      <Box sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder="Search communities..."
-          InputProps={{
-            startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
-          }}
-          sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-        />
-      </Box>
-
-      {/* Community List */}
-      <List sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+      
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
         {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-            <CircularProgress />
+          <Box sx={{ p: 2 }}>
+            {[1, 2, 3].map(i => (
+              <Skeleton key={i} variant="rectangular" height={70} sx={{ mb: 1, borderRadius: 2 }} />
+            ))}
           </Box>
         ) : communities.length === 0 ? (
-          <Box sx={{ textAlign: 'center', p: 4 }}>
-            <GroupIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+          <Box sx={{ p: 4, textAlign: 'center' }}>
+            <GroupsIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
             <Typography color="text.secondary">
-              No communities yet
+              {hasRole(ROLES.STUDENT) 
+                ? "You haven't been added to any community yet"
+                : "No communities created yet"}
             </Typography>
-            {(user?.role === 'admin' || user?.role === 'teacher') && (
-              <Button
-                variant="outlined"
+            {(hasRole(ROLES.ADMIN) || hasRole(ROLES.TEACHER)) && (
+              <Button 
+                variant="contained" 
                 startIcon={<AddIcon />}
-                onClick={() => setCreateCommunityOpen(true)}
+                onClick={() => setCreateCommunityDialog(true)}
                 sx={{ mt: 2 }}
               >
                 Create Community
@@ -433,63 +509,81 @@ function Community() {
             )}
           </Box>
         ) : (
-          communities.map((community) => (
-            <ListItemButton
-              key={community.community_id}
-              onClick={() => handleSelectCommunity(community)}
-              selected={selectedCommunity?.community_id === community.community_id}
-              sx={{
-                borderRadius: 2,
-                mb: 0.5,
-                '&.Mui-selected': {
-                  bgcolor: alpha(theme.palette.primary.main, 0.1),
-                }
-              }}
-            >
-              <ListItemAvatar>
-                <Avatar sx={{ bgcolor: 'primary.main' }}>
-                  <GroupIcon />
-                </Avatar>
-              </ListItemAvatar>
-              <ListItemText
-                primary={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography fontWeight={500} noWrap>
-                      {community.name}
+          <List sx={{ p: 1 }}>
+            {communities.map((community) => (
+              <ListItemButton
+                key={community.community_id}
+                selected={selectedCommunity?.community_id === community.community_id}
+                onClick={() => handleSelectCommunity(community)}
+                sx={{ 
+                  borderRadius: 2, 
+                  mb: 0.5,
+                  '&.Mui-selected': {
+                    backgroundColor: 'primary.light',
+                    color: 'primary.contrastText',
+                    '&:hover': {
+                      backgroundColor: 'primary.main',
+                    }
+                  }
+                }}
+              >
+                <ListItemAvatar>
+                  <Avatar sx={{ 
+                    bgcolor: community.community_type === 'admin_teacher' ? 'secondary.main' : 'primary.main'
+                  }}>
+                    {community.community_type === 'admin_teacher' ? <AdminIcon /> : <SchoolIcon />}
+                  </Avatar>
+                </ListItemAvatar>
+                <ListItemText
+                  primary={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="subtitle1" fontWeight={500} noWrap>
+                        {community.name}
+                      </Typography>
+                      {community.is_owner && (
+                        <Chip label="Owner" size="small" color="primary" variant="outlined" />
+                      )}
+                    </Box>
+                  }
+                  secondary={
+                    <Typography variant="body2" color="text.secondary" noWrap>
+                      {community.latest_message?.content || community.description || 'No messages yet'}
                     </Typography>
-                    {community.is_owner && (
-                      <Chip label="Owner" size="small" color="primary" sx={{ height: 20, fontSize: '0.7rem' }} />
-                    )}
-                  </Box>
-                }
-                secondary={
-                  <Typography variant="caption" color="text.secondary" noWrap>
-                    {community.latest_message?.content || `${community.member_count} members`}
-                  </Typography>
-                }
-              />
-              {community.unread_count > 0 && (
-                <Badge badgeContent={community.unread_count} color="primary" />
-              )}
-            </ListItemButton>
-          ))
+                  }
+                />
+                {community.unread_count > 0 && (
+                  <Badge badgeContent={community.unread_count} color="error" sx={{ mr: 1 }} />
+                )}
+              </ListItemButton>
+            ))}
+          </List>
         )}
-      </List>
+      </Box>
     </Paper>
   );
 
-  // Render chat area
   const renderChatArea = () => (
-    <Paper 
-      sx={{ 
-        height: '100%', 
-        display: 'flex', 
-        flexDirection: 'column',
-        borderRadius: 2,
-        overflow: 'hidden'
-      }}
-    >
-      {selectedCommunity ? (
+    <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {!selectedCommunity ? (
+        <Box sx={{ 
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column',
+          alignItems: 'center', 
+          justifyContent: 'center',
+          p: 4
+        }}>
+          <GroupsIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
+          <Typography variant="h6" color="text.secondary" textAlign="center">
+            Select a community to start chatting
+          </Typography>
+          <Typography variant="body2" color="text.disabled" textAlign="center" sx={{ mt: 1 }}>
+            {hasRole(ROLES.ADMIN) && "Create communities to connect with teachers"}
+            {hasRole(ROLES.TEACHER) && "Create communities to connect with students"}
+            {hasRole(ROLES.STUDENT) && "Join communities to connect with your teachers"}
+          </Typography>
+        </Box>
+      ) : (
         <>
           {/* Chat Header */}
           <Box sx={{ 
@@ -498,715 +592,871 @@ function Community() {
             borderColor: 'divider',
             display: 'flex',
             alignItems: 'center',
-            gap: 2,
-            bgcolor: alpha(theme.palette.primary.main, 0.05)
+            justifyContent: 'space-between',
+            bgcolor: 'primary.main',
+            color: 'primary.contrastText'
           }}>
-            {isMobile && (
-              <IconButton onClick={() => setMobileShowChat(false)}>
-                <BackIcon />
-              </IconButton>
-            )}
-            <Avatar sx={{ bgcolor: 'primary.main' }}>
-              <GroupIcon />
-            </Avatar>
-            <Box sx={{ flex: 1 }}>
-              <Typography fontWeight={600}>{selectedCommunity.name}</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {selectedCommunity.member_count} members
-              </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Avatar sx={{ mr: 2, bgcolor: 'primary.light' }}>
+                {selectedCommunity.community_type === 'admin_teacher' ? <AdminIcon /> : <SchoolIcon />}
+              </Avatar>
+              <Box>
+                <Typography variant="h6" fontWeight={600}>
+                  {selectedCommunity.name}
+                </Typography>
+                <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                  {communityDetails?.member_count || selectedCommunity.member_count} members
+                </Typography>
+              </Box>
             </Box>
-            {selectedCommunity.is_owner && (
-              <>
-                <Tooltip title="Add Members">
-                  <IconButton onClick={() => {
-                    setAddMembersOpen(true);
-                    fetchAvailableMembers(selectedCommunity.community_id);
-                  }}>
-                    <PersonIcon />
-                  </IconButton>
-                </Tooltip>
-                <IconButton onClick={(e) => setMenuAnchor(e.currentTarget)}>
-                  <MoreIcon />
+            <Box>
+              <Tooltip title="Community Info">
+                <IconButton color="inherit" onClick={() => setCommunityInfoDialog(true)}>
+                  <MoreVertIcon />
                 </IconButton>
-                <Menu
-                  anchorEl={menuAnchor}
-                  open={Boolean(menuAnchor)}
-                  onClose={() => setMenuAnchor(null)}
-                >
-                  <MenuItem onClick={() => {
-                    handleSendAnnouncement();
-                    setMenuAnchor(null);
-                  }}>
-                    <ListItemIcon><AnnouncementIcon /></ListItemIcon>
-                    Send Announcement
-                  </MenuItem>
-                </Menu>
-              </>
-            )}
+              </Tooltip>
+            </Box>
           </Box>
-
+          
           {/* Messages Area */}
-          <Box sx={{ flex: 1, overflow: 'auto', p: 2, bgcolor: '#f5f5f5' }}>
-            <AnimatePresence>
-              {messages.map((msg, index) => (
-                <motion.div
-                  key={msg.message_id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
+          <Box sx={{ flex: 1, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+            {loadingMessages ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : messages.length === 0 ? (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography color="text.secondary">
+                  No messages yet. Start the conversation!
+                </Typography>
+              </Box>
+            ) : (
+              messages.map((message) => (
+                <Box
+                  key={message.message_id}
+                  sx={{
+                    mb: 1.5,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: message.sender_type === user?.role ? 'flex-end' : 'flex-start',
+                  }}
                 >
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: msg.sender_type === user?.role && 
-                        (msg.sender_id === user?.[`${user?.role}_id`] || 
-                         msg.sender_name === user?.name) ? 'flex-end' : 'flex-start',
-                      mb: 2
-                    }}
-                  >
-                    {/* Announcement Badge */}
-                    {msg.message_type === 'announcement' && (
-                      <Chip
-                        icon={<AnnouncementIcon />}
-                        label="Announcement"
-                        color="warning"
-                        size="small"
-                        sx={{ mb: 0.5 }}
-                      />
-                    )}
-                    
-                    {/* System Message */}
-                    {msg.message_type === 'system' ? (
-                      <Chip
-                        label={msg.content}
-                        size="small"
-                        sx={{ bgcolor: alpha(theme.palette.info.main, 0.1), color: 'info.main' }}
-                      />
-                    ) : (
+                  {message.message_type === 'system' ? (
+                    <Chip
+                      label={message.content}
+                      size="small"
+                      sx={{ bgcolor: 'grey.200', color: 'text.secondary' }}
+                    />
+                  ) : (
+                    <>
+                      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, px: 1 }}>
+                        {message.sender_name}
+                        {message.message_type === 'announcement' && (
+                          <Chip label="Announcement" size="small" color="warning" sx={{ ml: 1, height: 18 }} />
+                        )}
+                      </Typography>
                       <Paper
+                        elevation={1}
                         sx={{
                           p: 1.5,
                           maxWidth: '70%',
-                          bgcolor: msg.sender_name === user?.name ? 'primary.main' : 'white',
-                          color: msg.sender_name === user?.name ? 'white' : 'text.primary',
                           borderRadius: 2,
-                          boxShadow: 1
+                          bgcolor: message.sender_type === user?.role ? 'primary.main' : 'white',
+                          color: message.sender_type === user?.role ? 'white' : 'text.primary',
                         }}
                       >
-                        {msg.sender_name !== user?.name && (
-                          <Typography variant="caption" fontWeight={600} color={msg.sender_name === user?.name ? 'inherit' : 'primary'}>
-                            {msg.sender_name}
-                          </Typography>
-                        )}
-                        
-                        {/* File Message */}
-                        {msg.message_type === 'file' && msg.file_name && (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                            <FileIcon />
-                            <Typography variant="body2">{msg.file_name}</Typography>
-                          </Box>
-                        )}
-                        
-                        <Typography variant="body2">{msg.content}</Typography>
-                        
+                        <Typography variant="body1">{message.content}</Typography>
                         <Typography 
                           variant="caption" 
                           sx={{ 
                             display: 'block', 
-                            mt: 0.5, 
-                            opacity: 0.7,
-                            textAlign: 'right'
+                            textAlign: 'right', 
+                            mt: 0.5,
+                            opacity: 0.7 
                           }}
                         >
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </Typography>
                       </Paper>
-                    )}
-                  </Box>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+                    </>
+                  )}
+                </Box>
+              ))
+            )}
             <div ref={messagesEndRef} />
           </Box>
-
+          
           {/* Message Input */}
           <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', gap: 1 }}>
-            <input
-              type="file"
-              ref={fileInputRef}
-              style={{ display: 'none' }}
-              onChange={handleFileUpload}
-            />
-            <IconButton onClick={() => fileInputRef.current?.click()} disabled={sendingMessage}>
-              <AttachIcon />
-            </IconButton>
             <TextField
+              ref={messageInputRef}
               fullWidth
-              size="small"
               placeholder="Type a message..."
-              value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-              disabled={sendingMessage}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 3 } }}
+              variant="outlined"
+              size="small"
+              multiline
+              maxRows={4}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <IconButton size="small">
+                      <AttachFileIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
-            <IconButton 
-              color="primary" 
+            <Button 
+              variant="contained" 
               onClick={handleSendMessage}
-              disabled={!messageInput.trim() || sendingMessage}
+              disabled={!newMessage.trim()}
+              sx={{ minWidth: 'auto', px: 2 }}
             >
-              {sendingMessage ? <CircularProgress size={24} /> : <SendIcon />}
-            </IconButton>
+              <SendIcon />
+            </Button>
           </Box>
         </>
-      ) : (
-        <Box sx={{ 
-          height: '100%', 
-          display: 'flex', 
-          flexDirection: 'column',
-          alignItems: 'center', 
-          justifyContent: 'center',
-          p: 4
-        }}>
-          <GroupIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
-          <Typography variant="h6" color="text.secondary">
-            Select a community to start chatting
-          </Typography>
-        </Box>
       )}
     </Paper>
   );
 
-  // Render grievance list
   const renderGrievanceList = () => (
-    <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 2, overflow: 'hidden' }}>
-      {/* Header */}
+    <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="h6" fontWeight={600}>
+            <ReportIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
             Grievances
           </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <IconButton onClick={() => { fetchGrievances(); fetchGrievanceStats(); }}>
-              <RefreshIcon />
-            </IconButton>
-            <Button
-              variant="contained"
+          <Box>
+            <Tooltip title="Refresh">
+              <IconButton onClick={fetchGrievances}>
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+            <Button 
+              variant="contained" 
               startIcon={<AddIcon />}
-              onClick={() => setCreateGrievanceOpen(true)}
+              onClick={() => setCreateGrievanceDialog(true)}
               size="small"
             >
               New
             </Button>
           </Box>
         </Box>
-
-        {/* Stats */}
-        {grievanceStats && (
-          <Grid container spacing={1} sx={{ mb: 2 }}>
+        
+        {/* Stats for Admin/Teacher */}
+        {(hasRole(ROLES.ADMIN) || hasRole(ROLES.TEACHER)) && grievanceStats && (
+          <Grid container spacing={1}>
             <Grid item xs={3}>
-              <Card sx={{ bgcolor: statusColors.pending.bg }}>
-                <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                  <Typography variant="h6" sx={{ color: statusColors.pending.color }}>
-                    {grievanceStats.pending}
-                  </Typography>
-                  <Typography variant="caption">Pending</Typography>
-                </CardContent>
-              </Card>
+              <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'warning.light', borderRadius: 1 }}>
+                <Typography variant="h6" fontWeight={600}>{grievanceStats.pending || 0}</Typography>
+                <Typography variant="caption">Pending</Typography>
+              </Box>
             </Grid>
             <Grid item xs={3}>
-              <Card sx={{ bgcolor: statusColors.in_review.bg }}>
-                <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                  <Typography variant="h6" sx={{ color: statusColors.in_review.color }}>
-                    {grievanceStats.in_review}
-                  </Typography>
-                  <Typography variant="caption">In Review</Typography>
-                </CardContent>
-              </Card>
+              <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'info.light', borderRadius: 1 }}>
+                <Typography variant="h6" fontWeight={600}>{grievanceStats.in_review || 0}</Typography>
+                <Typography variant="caption">In Review</Typography>
+              </Box>
             </Grid>
             <Grid item xs={3}>
-              <Card sx={{ bgcolor: statusColors.resolved.bg }}>
-                <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                  <Typography variant="h6" sx={{ color: statusColors.resolved.color }}>
-                    {grievanceStats.resolved}
-                  </Typography>
-                  <Typography variant="caption">Resolved</Typography>
-                </CardContent>
-              </Card>
+              <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'success.light', borderRadius: 1 }}>
+                <Typography variant="h6" fontWeight={600}>{grievanceStats.resolved || 0}</Typography>
+                <Typography variant="caption">Resolved</Typography>
+              </Box>
             </Grid>
             <Grid item xs={3}>
-              <Card sx={{ bgcolor: statusColors.escalated.bg }}>
-                <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                  <Typography variant="h6" sx={{ color: statusColors.escalated.color }}>
-                    {grievanceStats.escalated}
-                  </Typography>
-                  <Typography variant="caption">Escalated</Typography>
-                </CardContent>
-              </Card>
+              <Box sx={{ textAlign: 'center', p: 1, bgcolor: 'error.light', borderRadius: 1 }}>
+                <Typography variant="h6" fontWeight={600}>{grievanceStats.escalated || 0}</Typography>
+                <Typography variant="caption">Escalated</Typography>
+              </Box>
             </Grid>
           </Grid>
         )}
-
-        {/* Filter */}
-        <FormControl size="small" fullWidth>
-          <InputLabel>Status Filter</InputLabel>
-          <Select
-            value={grievanceFilter}
-            label="Status Filter"
-            onChange={(e) => {
-              setGrievanceFilter(e.target.value);
-              setTimeout(fetchGrievances, 100);
-            }}
-          >
-            <MenuItem value="all">All</MenuItem>
-            <MenuItem value="pending">Pending</MenuItem>
-            <MenuItem value="in_review">In Review</MenuItem>
-            <MenuItem value="resolved">Resolved</MenuItem>
-            <MenuItem value="rejected">Rejected</MenuItem>
-            <MenuItem value="escalated">Escalated</MenuItem>
-          </Select>
-        </FormControl>
       </Box>
-
-      {/* Grievance List */}
-      <List sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+      
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
         {grievances.length === 0 ? (
-          <Box sx={{ textAlign: 'center', p: 4 }}>
-            <GrievanceIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-            <Typography color="text.secondary">No grievances found</Typography>
+          <Box sx={{ p: 4, textAlign: 'center' }}>
+            <ReportIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
+            <Typography color="text.secondary">
+              {hasRole(ROLES.STUDENT) 
+                ? "You haven't submitted any grievances"
+                : "No grievances to review"}
+            </Typography>
+            <Button 
+              variant="outlined" 
+              startIcon={<AddIcon />}
+              onClick={() => setCreateGrievanceDialog(true)}
+              sx={{ mt: 2 }}
+            >
+              Submit Grievance
+            </Button>
           </Box>
         ) : (
-          grievances.map((grievance) => (
-            <ListItemButton
-              key={grievance.grievance_id}
-              onClick={async () => {
-                const response = await api.getGrievance(grievance.grievance_id);
-                if (response.success) {
-                  setSelectedGrievance(response.data);
-                  setGrievanceDetailOpen(true);
-                }
-              }}
-              sx={{
-                borderRadius: 2,
-                mb: 1,
-                border: 1,
-                borderColor: 'divider',
-                bgcolor: 'white'
-              }}
-            >
-              <ListItemAvatar>
-                <Avatar sx={{ bgcolor: statusColors[grievance.status]?.bg || '#f5f5f5' }}>
-                  {grievance.status === 'resolved' ? <ResolvedIcon sx={{ color: statusColors.resolved.color }} /> :
-                   grievance.status === 'escalated' ? <EscalateIcon sx={{ color: statusColors.escalated.color }} /> :
-                   <PendingIcon sx={{ color: statusColors[grievance.status]?.color || '#666' }} />}
-                </Avatar>
-              </ListItemAvatar>
-              <ListItemText
-                primary={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography fontWeight={500} noWrap sx={{ flex: 1 }}>
-                      {grievance.subject}
-                    </Typography>
-                    <Chip
-                      label={grievance.priority}
-                      size="small"
-                      sx={{
-                        height: 20,
-                        fontSize: '0.65rem',
-                        bgcolor: priorityColors[grievance.priority]?.bg,
-                        color: priorityColors[grievance.priority]?.color
-                      }}
-                    />
-                  </Box>
-                }
-                secondary={
-                  <Box>
-                    <Typography variant="caption" display="block" noWrap>
-                      {grievance.description?.substring(0, 50)}...
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
-                      <Chip
-                        label={grievance.status.replace('_', ' ')}
-                        size="small"
-                        sx={{
-                          height: 18,
-                          fontSize: '0.6rem',
-                          bgcolor: statusColors[grievance.status]?.bg,
-                          color: statusColors[grievance.status]?.color
-                        }}
-                      />
-                      <Typography variant="caption" color="text.secondary">
-                        {new Date(grievance.created_at).toLocaleDateString()}
+          <List sx={{ p: 1 }}>
+            {grievances.map((grievance) => (
+              <Card 
+                key={grievance.grievance_id} 
+                sx={{ mb: 1, cursor: 'pointer' }}
+                onClick={() => handleViewGrievance(grievance)}
+              >
+                <CardContent sx={{ pb: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                        {grievance.subject}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {grievance.description}
                       </Typography>
                     </Box>
+                    <Box sx={{ ml: 2, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
+                      <StatusChip status={grievance.status} />
+                      <PriorityChip priority={grievance.priority} />
+                    </Box>
                   </Box>
-                }
-              />
-            </ListItemButton>
-          ))
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {grievance.category && <Chip label={grievance.category} size="small" variant="outlined" sx={{ mr: 1 }} />}
+                      By: {grievance.complainant_name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {new Date(grievance.created_at).toLocaleDateString()}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            ))}
+          </List>
         )}
-      </List>
+      </Box>
     </Paper>
   );
 
-  return (
-    <Box sx={{ height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column' }}>
-      {/* Tabs */}
-      <Paper sx={{ mb: 2, borderRadius: 2 }}>
-        <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)} variant="fullWidth">
-          <Tab icon={<GroupIcon />} label="Communities" iconPosition="start" />
-          <Tab icon={<GrievanceIcon />} label="Grievances" iconPosition="start" />
-        </Tabs>
-      </Paper>
+  // ========== Dialogs ==========
+  const CreateCommunityDialog = () => (
+    <Dialog open={createCommunityDialog} onClose={() => setCreateCommunityDialog(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <GroupsIcon sx={{ mr: 1 }} />
+          Create New Community
+        </Box>
+      </DialogTitle>
+      <DialogContent dividers>
+        <TextField
+          autoFocus
+          fullWidth
+          label="Community Name"
+          value={communityForm.name}
+          onChange={(e) => setCommunityForm({ ...communityForm, name: e.target.value })}
+          margin="normal"
+          required
+        />
+        <TextField
+          fullWidth
+          label="Description"
+          value={communityForm.description}
+          onChange={(e) => setCommunityForm({ ...communityForm, description: e.target.value })}
+          margin="normal"
+          multiline
+          rows={3}
+        />
+        <FormControl fullWidth margin="normal">
+          <InputLabel>Community Type</InputLabel>
+          <Select
+            value={communityForm.community_type}
+            onChange={(e) => setCommunityForm({ ...communityForm, community_type: e.target.value })}
+            label="Community Type"
+          >
+            {hasRole(ROLES.ADMIN) && (
+              <MenuItem value="admin_teacher">
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <AdminIcon sx={{ mr: 1 }} /> Admin-Teacher Community
+                </Box>
+              </MenuItem>
+            )}
+            <MenuItem value="teacher_student">
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <SchoolIcon sx={{ mr: 1 }} /> Teacher-Student Community
+              </Box>
+            </MenuItem>
+          </Select>
+        </FormControl>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setCreateCommunityDialog(false)}>Cancel</Button>
+        <Button variant="contained" onClick={handleCreateCommunity}>Create</Button>
+      </DialogActions>
+    </Dialog>
+  );
 
-      {/* Content */}
-      <Box sx={{ flex: 1, overflow: 'hidden' }}>
-        <TabPanel value={tabValue} index={0}>
-          <Grid container spacing={2} sx={{ height: '100%' }}>
-            {/* Community List */}
-            {(!isMobile || !mobileShowChat) && (
-              <Grid item xs={12} md={4} sx={{ height: '100%' }}>
-                {renderCommunityList()}
+  const CreateGrievanceDialog = () => (
+    <Dialog open={createGrievanceDialog} onClose={() => setCreateGrievanceDialog(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <ReportIcon sx={{ mr: 1 }} />
+          Submit Grievance
+        </Box>
+      </DialogTitle>
+      <DialogContent dividers>
+        <TextField
+          autoFocus
+          fullWidth
+          label="Subject"
+          value={grievanceForm.subject}
+          onChange={(e) => setGrievanceForm({ ...grievanceForm, subject: e.target.value })}
+          margin="normal"
+          required
+        />
+        <TextField
+          fullWidth
+          label="Description"
+          value={grievanceForm.description}
+          onChange={(e) => setGrievanceForm({ ...grievanceForm, description: e.target.value })}
+          margin="normal"
+          multiline
+          rows={4}
+          required
+          placeholder="Please describe your issue in detail..."
+        />
+        <Grid container spacing={2}>
+          <Grid item xs={6}>
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={grievanceForm.category}
+                onChange={(e) => setGrievanceForm({ ...grievanceForm, category: e.target.value })}
+                label="Category"
+              >
+                {GRIEVANCE_CATEGORIES.map(cat => (
+                  <MenuItem key={cat} value={cat}>{cat}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={6}>
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Priority</InputLabel>
+              <Select
+                value={grievanceForm.priority}
+                onChange={(e) => setGrievanceForm({ ...grievanceForm, priority: e.target.value })}
+                label="Priority"
+              >
+                {GRIEVANCE_PRIORITIES.map(p => (
+                  <MenuItem key={p.value} value={p.value}>
+                    <Chip label={p.label} color={p.color} size="small" />
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+        </Grid>
+        {communities.length > 0 && (
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Related Community (Optional)</InputLabel>
+            <Select
+              value={grievanceForm.community_id || ''}
+              onChange={(e) => setGrievanceForm({ ...grievanceForm, community_id: e.target.value || null })}
+              label="Related Community (Optional)"
+            >
+              <MenuItem value="">None</MenuItem>
+              {communities.map(comm => (
+                <MenuItem key={comm.community_id} value={comm.community_id}>{comm.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setCreateGrievanceDialog(false)}>Cancel</Button>
+        <Button variant="contained" color="warning" onClick={handleCreateGrievance}>Submit</Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  const GrievanceDetailDialog = () => {
+    const [responseText, setResponseText] = useState('');
+    const [resolutionText, setResolutionText] = useState('');
+    const [escalationReason, setEscalationReason] = useState('');
+    const [showResolveForm, setShowResolveForm] = useState(false);
+    const [showEscalateForm, setShowEscalateForm] = useState(false);
+
+    if (!selectedGrievance) return null;
+
+    const canManage = (hasRole(ROLES.ADMIN) || hasRole(ROLES.TEACHER)) && 
+                      selectedGrievance.status !== 'resolved' && 
+                      selectedGrievance.status !== 'rejected';
+
+    return (
+      <Dialog 
+        open={grievanceDetailDialog} 
+        onClose={() => {
+          setGrievanceDetailDialog(false);
+          setSelectedGrievance(null);
+        }} 
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <ReportIcon sx={{ mr: 1 }} />
+              Grievance Details
+            </Box>
+            <Box>
+              <StatusChip status={selectedGrievance.status} />
+            </Box>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>{selectedGrievance.subject}</Typography>
+              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                <PriorityChip priority={selectedGrievance.priority} />
+                {selectedGrievance.category && (
+                  <Chip label={selectedGrievance.category} variant="outlined" size="small" />
+                )}
+              </Box>
+              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', mb: 2 }}>
+                {selectedGrievance.description}
+              </Typography>
+              <Divider sx={{ my: 2 }} />
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Submitted By</Typography>
+                  <Typography variant="body2">{selectedGrievance.complainant_name} ({selectedGrievance.complainant_type})</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Assigned To</Typography>
+                  <Typography variant="body2">{selectedGrievance.assigned_to || 'Not assigned'}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" color="text.secondary">Created</Typography>
+                  <Typography variant="body2">{new Date(selectedGrievance.created_at).toLocaleString()}</Typography>
+                </Grid>
+                {selectedGrievance.resolved_at && (
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary">Resolved</Typography>
+                    <Typography variant="body2">{new Date(selectedGrievance.resolved_at).toLocaleString()}</Typography>
+                  </Grid>
+                )}
+              </Grid>
+              
+              {selectedGrievance.resolution && (
+                <Alert severity="success" sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2">Resolution:</Typography>
+                  {selectedGrievance.resolution}
+                </Alert>
+              )}
+              
+              {selectedGrievance.escalation_reason && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2">Escalation Reason:</Typography>
+                  {selectedGrievance.escalation_reason}
+                </Alert>
+              )}
+            </Grid>
+            
+            {/* Responses */}
+            {selectedGrievance.responses && selectedGrievance.responses.length > 0 && (
+              <Grid item xs={12}>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  Responses ({selectedGrievance.responses.length})
+                </Typography>
+                <List>
+                  {selectedGrievance.responses.map((response, index) => (
+                    <ListItem key={response.response_id || index} alignItems="flex-start" sx={{ px: 0 }}>
+                      <ListItemAvatar>
+                        <Avatar sx={{ bgcolor: response.responder_type === 'admin' ? 'secondary.main' : 'primary.main' }}>
+                          {response.responder_type === 'admin' ? <AdminIcon /> : 
+                           response.responder_type === 'teacher' ? <SchoolIcon /> : <PersonIcon />}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="subtitle2">{response.responder_name}</Typography>
+                            <Chip label={response.responder_type} size="small" variant="outlined" />
+                            {response.action_taken && (
+                              <Chip label={response.action_taken} size="small" color="info" />
+                            )}
+                          </Box>
+                        }
+                        secondary={
+                          <>
+                            <Typography variant="body2" sx={{ mt: 0.5 }}>{response.content}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(response.created_at).toLocaleString()}
+                            </Typography>
+                          </>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                </List>
               </Grid>
             )}
             
-            {/* Chat Area */}
-            {(!isMobile || mobileShowChat) && (
-              <Grid item xs={12} md={8} sx={{ height: '100%' }}>
-                {renderChatArea()}
-              </Grid>
-            )}
-          </Grid>
-        </TabPanel>
-
-        <TabPanel value={tabValue} index={1}>
-          <Box sx={{ height: '100%' }}>
-            {renderGrievanceList()}
-          </Box>
-        </TabPanel>
-      </Box>
-
-      {/* Create Community Dialog */}
-      <Dialog open={createCommunityOpen} onClose={() => setCreateCommunityOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New Community</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            label="Community Name"
-            value={newCommunity.name}
-            onChange={(e) => setNewCommunity({ ...newCommunity, name: e.target.value })}
-            sx={{ mt: 2, mb: 2 }}
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            multiline
-            rows={3}
-            value={newCommunity.description}
-            onChange={(e) => setNewCommunity({ ...newCommunity, description: e.target.value })}
-            sx={{ mb: 2 }}
-          />
-          <FormControl fullWidth>
-            <InputLabel>Community Type</InputLabel>
-            <Select
-              value={newCommunity.community_type}
-              label="Community Type"
-              onChange={(e) => setNewCommunity({ ...newCommunity, community_type: e.target.value })}
-            >
-              {user?.role === 'admin' && (
-                <MenuItem value="admin_teacher">Admin-Teacher Community</MenuItem>
-              )}
-              <MenuItem value="teacher_student">Teacher-Student Community</MenuItem>
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateCommunityOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateCommunity} disabled={!newCommunity.name}>
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Add Members Dialog */}
-      <Dialog open={addMembersOpen} onClose={() => setAddMembersOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add Members</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            placeholder="Search members..."
-            value={memberSearch}
-            onChange={(e) => {
-              setMemberSearch(e.target.value);
-              fetchAvailableMembers(selectedCommunity?.community_id, e.target.value);
-            }}
-            InputProps={{
-              startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
-            }}
-            sx={{ mt: 2, mb: 2 }}
-          />
-          <List sx={{ maxHeight: 300, overflow: 'auto' }}>
-            {availableMembers.map((member) => (
-              <ListItem key={member.id} disablePadding>
-                <ListItemButton
+            {/* Add Response */}
+            {canManage && (
+              <Grid item xs={12}>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Add Response</Typography>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={2}
+                  placeholder="Type your response..."
+                  value={responseText}
+                  onChange={(e) => setResponseText(e.target.value)}
+                />
+                <Button 
+                  variant="outlined" 
+                  sx={{ mt: 1 }}
                   onClick={() => {
-                    if (selectedMembers.includes(member.id)) {
-                      setSelectedMembers(selectedMembers.filter(id => id !== member.id));
-                    } else {
-                      setSelectedMembers([...selectedMembers, member.id]);
+                    if (responseText.trim()) {
+                      handleAddResponse(selectedGrievance.grievance_id, responseText);
+                      setResponseText('');
                     }
                   }}
                 >
-                  <ListItemIcon>
-                    <Checkbox checked={selectedMembers.includes(member.id)} />
-                  </ListItemIcon>
-                  <ListItemAvatar>
-                    <Avatar>{member.name?.charAt(0)}</Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={member.name}
-                    secondary={member.email || member.roll_no}
-                  />
-                </ListItemButton>
-              </ListItem>
-            ))}
-          </List>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAddMembersOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleAddMembers} disabled={selectedMembers.length === 0}>
-            Add {selectedMembers.length} Members
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Create Grievance Dialog */}
-      <Dialog open={createGrievanceOpen} onClose={() => setCreateGrievanceOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Submit Grievance</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            label="Subject"
-            value={newGrievance.subject}
-            onChange={(e) => setNewGrievance({ ...newGrievance, subject: e.target.value })}
-            sx={{ mt: 2, mb: 2 }}
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            multiline
-            rows={4}
-            value={newGrievance.description}
-            onChange={(e) => setNewGrievance({ ...newGrievance, description: e.target.value })}
-            sx={{ mb: 2 }}
-          />
-          <Grid container spacing={2}>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Category</InputLabel>
-                <Select
-                  value={newGrievance.category}
-                  label="Category"
-                  onChange={(e) => setNewGrievance({ ...newGrievance, category: e.target.value })}
-                >
-                  <MenuItem value="academic">Academic</MenuItem>
-                  <MenuItem value="behavioral">Behavioral</MenuItem>
-                  <MenuItem value="technical">Technical</MenuItem>
-                  <MenuItem value="administrative">Administrative</MenuItem>
-                  <MenuItem value="other">Other</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Priority</InputLabel>
-                <Select
-                  value={newGrievance.priority}
-                  label="Priority"
-                  onChange={(e) => setNewGrievance({ ...newGrievance, priority: e.target.value })}
-                >
-                  <MenuItem value="low">Low</MenuItem>
-                  <MenuItem value="medium">Medium</MenuItem>
-                  <MenuItem value="high">High</MenuItem>
-                  <MenuItem value="urgent">Urgent</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
+                  Add Response
+                </Button>
+              </Grid>
+            )}
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateGrievanceOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            onClick={handleCreateGrievance} 
-            disabled={!newGrievance.subject || !newGrievance.description}
-          >
-            Submit
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Grievance Detail Dialog */}
-      <Dialog 
-        open={grievanceDetailOpen} 
-        onClose={() => setGrievanceDetailOpen(false)} 
-        maxWidth="md" 
-        fullWidth
-        PaperProps={{ sx: { height: '80vh' } }}
-      >
-        {selectedGrievance && (
-          <>
-            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="h6">{selectedGrievance.subject}</Typography>
-                <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
-                  <Chip
-                    label={selectedGrievance.status.replace('_', ' ')}
-                    size="small"
-                    sx={{
-                      bgcolor: statusColors[selectedGrievance.status]?.bg,
-                      color: statusColors[selectedGrievance.status]?.color
-                    }}
-                  />
-                  <Chip
-                    label={selectedGrievance.priority}
-                    size="small"
-                    sx={{
-                      bgcolor: priorityColors[selectedGrievance.priority]?.bg,
-                      color: priorityColors[selectedGrievance.priority]?.color
-                    }}
-                  />
-                  <Chip label={selectedGrievance.category} size="small" variant="outlined" />
-                </Box>
-              </Box>
-              <IconButton onClick={() => setGrievanceDetailOpen(false)}>
-                <CloseIcon />
-              </IconButton>
-            </DialogTitle>
-            <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column' }}>
-              {/* Description */}
-              <Paper sx={{ p: 2, mb: 2, bgcolor: '#f5f5f5' }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Description
-                </Typography>
-                <Typography>{selectedGrievance.description}</Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                  Submitted by {selectedGrievance.complainant_name} on {new Date(selectedGrievance.created_at).toLocaleString()}
-                </Typography>
-              </Paper>
-
-              {/* Resolution (if any) */}
-              {selectedGrievance.resolution && (
-                <Alert severity="success" sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2">Resolution</Typography>
-                  <Typography variant="body2">{selectedGrievance.resolution}</Typography>
-                </Alert>
-              )}
-
-              {/* Status Actions */}
-              {(user?.role === 'admin' || user?.role === 'teacher') && 
-               selectedGrievance.status !== 'resolved' && 
-               selectedGrievance.status !== 'rejected' && (
-                <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                  {selectedGrievance.status === 'pending' && (
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleGrievanceStatusChange(selectedGrievance.grievance_id, 'in_review')}
-                    >
-                      Start Review
-                    </Button>
-                  )}
-                  <Button
+          {canManage && (
+            <>
+              {!showResolveForm && !showEscalateForm && (
+                <>
+                  <Button 
+                    color="info" 
+                    onClick={() => handleUpdateGrievanceStatus(selectedGrievance.grievance_id, 'in_review')}
+                    disabled={selectedGrievance.status === 'in_review'}
+                  >
+                    Mark In Review
+                  </Button>
+                  <Button 
+                    color="success" 
                     variant="contained"
-                    color="success"
-                    startIcon={<ResolvedIcon />}
-                    onClick={() => {
-                      const resolution = prompt('Enter resolution:');
-                      if (resolution) {
-                        handleGrievanceStatusChange(selectedGrievance.grievance_id, 'resolved', resolution);
-                      }
-                    }}
+                    onClick={() => setShowResolveForm(true)}
                   >
                     Resolve
                   </Button>
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    onClick={() => handleGrievanceStatusChange(selectedGrievance.grievance_id, 'rejected')}
-                  >
-                    Reject
-                  </Button>
-                  {user?.role === 'teacher' && (
-                    <Button
-                      variant="outlined"
-                      color="warning"
-                      startIcon={<EscalateIcon />}
-                      onClick={() => {
-                        const reason = prompt('Enter escalation reason:');
-                        if (reason) {
-                          handleGrievanceStatusChange(selectedGrievance.grievance_id, 'escalated', null);
-                        }
-                      }}
+                  {hasRole(ROLES.TEACHER) && selectedGrievance.status !== 'escalated' && (
+                    <Button 
+                      color="warning" 
+                      variant="contained"
+                      onClick={() => setShowEscalateForm(true)}
                     >
                       Escalate to Admin
                     </Button>
                   )}
+                  <Button 
+                    color="error" 
+                    onClick={() => handleUpdateGrievanceStatus(selectedGrievance.grievance_id, 'rejected')}
+                  >
+                    Reject
+                  </Button>
+                </>
+              )}
+              
+              {showResolveForm && (
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', width: '100%' }}>
+                  <TextField
+                    size="small"
+                    placeholder="Resolution details..."
+                    value={resolutionText}
+                    onChange={(e) => setResolutionText(e.target.value)}
+                    sx={{ flex: 1 }}
+                  />
+                  <Button 
+                    color="success" 
+                    variant="contained"
+                    onClick={() => {
+                      handleUpdateGrievanceStatus(selectedGrievance.grievance_id, 'resolved', resolutionText);
+                      setShowResolveForm(false);
+                      setResolutionText('');
+                    }}
+                  >
+                    Confirm
+                  </Button>
+                  <Button onClick={() => setShowResolveForm(false)}>Cancel</Button>
                 </Box>
               )}
+              
+              {showEscalateForm && (
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', width: '100%' }}>
+                  <TextField
+                    size="small"
+                    placeholder="Reason for escalation..."
+                    value={escalationReason}
+                    onChange={(e) => setEscalationReason(e.target.value)}
+                    sx={{ flex: 1 }}
+                  />
+                  <Button 
+                    color="warning" 
+                    variant="contained"
+                    onClick={() => {
+                      handleUpdateGrievanceStatus(selectedGrievance.grievance_id, 'escalated', null, escalationReason);
+                      setShowEscalateForm(false);
+                      setEscalationReason('');
+                    }}
+                  >
+                    Confirm
+                  </Button>
+                  <Button onClick={() => setShowEscalateForm(false)}>Cancel</Button>
+                </Box>
+              )}
+            </>
+          )}
+          <Button onClick={() => {
+            setGrievanceDetailDialog(false);
+            setSelectedGrievance(null);
+          }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+    );
+  };
 
-              {/* Responses */}
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>Responses</Typography>
-              <Box sx={{ flex: 1, overflow: 'auto', mb: 2 }}>
-                {selectedGrievance.responses?.length === 0 ? (
-                  <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                    No responses yet
-                  </Typography>
-                ) : (
-                  selectedGrievance.responses?.map((response) => (
-                    <Paper key={response.response_id} sx={{ p: 2, mb: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                        <Avatar sx={{ width: 28, height: 28, fontSize: '0.8rem' }}>
-                          {response.responder_name?.charAt(0)}
-                        </Avatar>
-                        <Typography variant="subtitle2">{response.responder_name}</Typography>
-                        <Chip label={response.responder_type} size="small" sx={{ height: 18, fontSize: '0.65rem' }} />
-                        <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-                          {new Date(response.created_at).toLocaleString()}
-                        </Typography>
-                      </Box>
-                      <Typography variant="body2">{response.content}</Typography>
-                      {response.action_taken && (
-                        <Chip label={response.action_taken} size="small" sx={{ mt: 1 }} variant="outlined" />
-                      )}
-                    </Paper>
-                  ))
-                )}
-              </Box>
-
-              {/* Add Response */}
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <TextField
-                  fullWidth
-                  placeholder="Add a response..."
-                  value={grievanceResponse}
-                  onChange={(e) => setGrievanceResponse(e.target.value)}
-                  size="small"
+  const AddMembersDialog = () => (
+    <Dialog open={addMembersDialog} onClose={() => setAddMembersDialog(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <PersonIcon sx={{ mr: 1 }} />
+          Add Members to Community
+        </Box>
+      </DialogTitle>
+      <DialogContent dividers>
+        <TextField
+          fullWidth
+          placeholder="Search members..."
+          value={memberSearch}
+          onChange={(e) => {
+            setMemberSearch(e.target.value);
+            fetchAvailableMembers(selectedCommunity?.community_id, e.target.value);
+          }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon />
+              </InputAdornment>
+            ),
+          }}
+          sx={{ mb: 2 }}
+        />
+        {availableMembers.length === 0 ? (
+          <Typography color="text.secondary" textAlign="center" py={2}>
+            No available members found
+          </Typography>
+        ) : (
+          <List sx={{ maxHeight: 300, overflow: 'auto' }}>
+            {availableMembers.map((member) => (
+              <ListItem 
+                key={member.id} 
+                dense
+                onClick={() => toggleMemberSelection(member.id)}
+                sx={{ cursor: 'pointer' }}
+              >
+                <Checkbox
+                  checked={selectedMembers.includes(member.id)}
+                  onChange={() => toggleMemberSelection(member.id)}
                 />
-                <Button
-                  variant="contained"
-                  onClick={handleAddGrievanceResponse}
-                  disabled={!grievanceResponse.trim()}
-                >
-                  Send
+                <ListItemAvatar>
+                  <Avatar>
+                    {member.type === 'teacher' ? <SchoolIcon /> : <PersonIcon />}
+                  </Avatar>
+                </ListItemAvatar>
+                <ListItemText
+                  primary={member.name}
+                  secondary={`${member.type} • ${member.email || member.roll_no || ''}`}
+                />
+              </ListItem>
+            ))}
+          </List>
+        )}
+        {selectedMembers.length > 0 && (
+          <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
+            {selectedMembers.length} member(s) selected
+          </Typography>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => {
+          setAddMembersDialog(false);
+          setSelectedMembers([]);
+        }}>Cancel</Button>
+        <Button 
+          variant="contained" 
+          onClick={handleAddMembers}
+          disabled={selectedMembers.length === 0}
+        >
+          Add Members
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  const CommunityInfoDialog = () => (
+    <Dialog 
+      open={communityInfoDialog} 
+      onClose={() => setCommunityInfoDialog(false)} 
+      maxWidth="sm" 
+      fullWidth
+    >
+      <DialogTitle>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          Community Info
+          <IconButton onClick={() => setCommunityInfoDialog(false)}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+      </DialogTitle>
+      <DialogContent dividers>
+        {communityDetails && (
+          <>
+            <Box sx={{ textAlign: 'center', mb: 3 }}>
+              <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: 'primary.main' }}>
+                {communityDetails.community_type === 'admin_teacher' ? <AdminIcon fontSize="large" /> : <SchoolIcon fontSize="large" />}
+              </Avatar>
+              <Typography variant="h5" fontWeight={600}>{communityDetails.name}</Typography>
+              <Typography variant="body2" color="text.secondary">{communityDetails.description || 'No description'}</Typography>
+              <Chip 
+                label={communityDetails.community_type === 'admin_teacher' ? 'Admin-Teacher' : 'Teacher-Student'} 
+                color={communityDetails.community_type === 'admin_teacher' ? 'secondary' : 'primary'}
+                sx={{ mt: 1 }}
+              />
+            </Box>
+            
+            <Divider sx={{ my: 2 }} />
+            
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600}>
+                Members ({communityDetails.members?.length || 0})
+              </Typography>
+              {selectedCommunity?.is_owner && (
+                <Button startIcon={<AddIcon />} size="small" onClick={handleOpenAddMembers}>
+                  Add Members
                 </Button>
-              </Box>
-            </DialogContent>
+              )}
+            </Box>
+            
+            <List>
+              {communityDetails.members?.map((member) => (
+                <ListItem key={member.member_id}>
+                  <ListItemAvatar>
+                    <Avatar sx={{ 
+                      bgcolor: member.member_type === 'admin' ? 'secondary.main' : 
+                               member.member_type === 'teacher' ? 'primary.main' : 'grey.500'
+                    }}>
+                      {member.member_type === 'admin' ? <AdminIcon /> : 
+                       member.member_type === 'teacher' ? <SchoolIcon /> : <PersonIcon />}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {member.member_name}
+                        {member.member_role === 'owner' && (
+                          <Chip label="Owner" size="small" color="primary" />
+                        )}
+                      </Box>
+                    }
+                    secondary={member.member_type}
+                  />
+                  {selectedCommunity?.is_owner && member.member_role !== 'owner' && (
+                    <ListItemSecondaryAction>
+                      <IconButton 
+                        edge="end" 
+                        color="error"
+                        onClick={() => handleRemoveMember(member.member_id)}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </ListItemSecondaryAction>
+                  )}
+                </ListItem>
+              ))}
+            </List>
           </>
         )}
-      </Dialog>
+      </DialogContent>
+      <DialogActions>
+        {selectedCommunity?.is_owner && (
+          <Button color="error" onClick={handleDeleteCommunity}>
+            Delete Community
+          </Button>
+        )}
+        <Button onClick={() => setCommunityInfoDialog(false)}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  // ========== Main Render ==========
+  return (
+    <Box sx={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="h4" fontWeight={700} gutterBottom>
+          Community & Grievances
+        </Typography>
+        <Typography variant="body1" color="text.secondary">
+          {hasRole(ROLES.ADMIN) && "Manage communities with teachers and handle escalated grievances"}
+          {hasRole(ROLES.TEACHER) && "Manage communities with students and handle their grievances"}
+          {hasRole(ROLES.STUDENT) && "Connect with your teachers and submit grievances"}
+        </Typography>
+      </Box>
+      
+      {/* Tabs */}
+      <Paper sx={{ mb: 2 }}>
+        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
+          <Tab icon={<GroupsIcon />} label="Communities" iconPosition="start" />
+          <Tab 
+            icon={
+              <Badge 
+                badgeContent={grievanceStats?.pending || 0} 
+                color="warning"
+              >
+                <ReportIcon />
+              </Badge>
+            } 
+            label="Grievances" 
+            iconPosition="start" 
+          />
+        </Tabs>
+      </Paper>
+      
+      {/* Content */}
+      <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        {activeTab === 0 ? (
+          <Grid container spacing={2} sx={{ height: '100%' }}>
+            <Grid item xs={12} md={4} sx={{ height: '100%' }}>
+              {renderCommunityList()}
+            </Grid>
+            <Grid item xs={12} md={8} sx={{ height: '100%' }}>
+              {renderChatArea()}
+            </Grid>
+          </Grid>
+        ) : (
+          renderGrievanceList()
+        )}
+      </Box>
+      
+      {/* Dialogs */}
+      <CreateCommunityDialog />
+      <CreateGrievanceDialog />
+      <GrievanceDetailDialog />
+      <AddMembersDialog />
+      <CommunityInfoDialog />
     </Box>
   );
 }
-
-export default Community;

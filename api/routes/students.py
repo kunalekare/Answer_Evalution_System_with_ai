@@ -34,13 +34,17 @@ router = APIRouter()
 # ========== Request/Response Models ==========
 class UpdateProfileRequest(BaseModel):
     """Update profile request."""
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+    gender: Optional[str] = None
+    date_of_birth: Optional[str] = None
 
 
 class ChangePasswordRequest(BaseModel):
     """Change password request."""
-    old_password: str
+    current_password: str
     new_password: str
 
 
@@ -279,10 +283,28 @@ async def update_profile(
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
+    if update_data.name is not None:
+        student.name = update_data.name
+    if update_data.email is not None:
+        # Check email uniqueness
+        existing = db.query(Student).filter(
+            Student.email == update_data.email,
+            Student.id != student.id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already in use")
+        student.email = update_data.email
     if update_data.phone is not None:
         student.phone = update_data.phone
     if update_data.address is not None:
         student.address = update_data.address
+    if update_data.gender is not None:
+        student.gender = update_data.gender
+    if update_data.date_of_birth is not None:
+        try:
+            student.date_of_birth = datetime.fromisoformat(update_data.date_of_birth)
+        except:
+            pass
     
     student.updated_at = datetime.utcnow()
     db.commit()
@@ -292,6 +314,38 @@ async def update_profile(
         "success": True,
         "message": "Profile updated successfully",
         "data": student.to_dict()
+    }
+
+
+@router.post("/change-password")
+async def change_password(
+    password_data: ChangePasswordRequest,
+    current_user: TokenData = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Change student password.
+    """
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Student access only")
+    
+    student = db.query(Student).filter(Student.id == current_user.user_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Verify current password
+    from api.services.auth_service import verify_password
+    if not student.password_hash or not verify_password(password_data.current_password, student.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Update password
+    student.password_hash = hash_password(password_data.new_password)
+    student.updated_at = datetime.utcnow()
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": "Password changed successfully"
     }
 
 

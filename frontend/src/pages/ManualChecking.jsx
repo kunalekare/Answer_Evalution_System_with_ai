@@ -45,7 +45,9 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  useTheme,
 } from '@mui/material';
+import { useThemeMode } from '../context/ThemeContext';
 import {
   Check as CheckIcon,
   Close as CloseIcon,
@@ -81,6 +83,9 @@ import {
   TextFields as TextIcon,
   Download as DownloadIcon,
   Print as PrintIcon,
+  Person as PersonIcon,
+  Assessment as AssessmentIcon,
+  Email as EmailIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -123,6 +128,8 @@ const sampleQuestions = [
 
 function ManualChecking() {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const { isDark } = useThemeMode();
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
   const containerRef = useRef(null);
@@ -161,6 +168,20 @@ function ManualChecking() {
   const [confirmDialog, setConfirmDialog] = useState({ open: false, type: '', title: '', message: '' });
   const [canvasDimensions, setCanvasDimensions] = useState({ width: 800, height: 1000 });
   const [pageAnnotations, setPageAnnotations] = useState({}); // Store annotations per page
+  const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0); // Track selected question for auto-scoring
+  
+  // Student & Paper Info for Marksheet
+  const [studentInfo, setStudentInfo] = useState({
+    name: '',
+    rollNo: '',
+    paperName: '',
+    class: '',
+    subject: '',
+    examDate: new Date().toISOString().split('T')[0],
+  });
+  const [marksheetDialogOpen, setMarksheetDialogOpen] = useState(false);
+  const [generatedMarksheet, setGeneratedMarksheet] = useState(null);
+  const [showStudentInfoDialog, setShowStudentInfoDialog] = useState(false);
 
   // Calculate total score
   const totalMaxMarks = questions.reduce((sum, q) => sum + q.maxMarks, 0);
@@ -509,6 +530,28 @@ function ManualChecking() {
       value: currentNumber,
       page: currentPage 
     }]);
+
+    // Auto-fill the score to the selected question
+    if (selectedQuestionIndex >= 0 && selectedQuestionIndex < questions.length) {
+      const selectedQuestion = questions[selectedQuestionIndex];
+      const scoreValue = Math.min(currentNumber, selectedQuestion.maxMarks);
+      
+      setQuestions(prev => 
+        prev.map((q, idx) => 
+          idx === selectedQuestionIndex 
+            ? { ...q, awardedMarks: scoreValue } 
+            : q
+        )
+      );
+      
+      // Show feedback
+      showSnackbar(`Q${selectedQuestionIndex + 1}: ${scoreValue}/${selectedQuestion.maxMarks} marks awarded`, 'success');
+      
+      // Auto-move to next question
+      if (selectedQuestionIndex < questions.length - 1) {
+        setSelectedQuestionIndex(prev => prev + 1);
+      }
+    }
   };
 
   // Add comment annotation
@@ -581,14 +624,60 @@ function ManualChecking() {
         message: `${unansweredQuestions.length} question(s) have not been marked. Do you want to continue?`
       });
     } else {
-      submitPaper();
+      // Show student info dialog before generating marksheet
+      setShowStudentInfoDialog(true);
     }
   };
 
   const submitPaper = () => {
-    showSnackbar('Paper submitted successfully!', 'success');
+    // Generate marksheet
+    const marksheet = {
+      id: Date.now().toString(),
+      studentInfo: { ...studentInfo },
+      paperDetails: {
+        paperName: studentInfo.paperName,
+        subject: studentInfo.subject,
+        examDate: studentInfo.examDate,
+        totalPages: totalPages,
+      },
+      evaluation: questions.map((q, idx) => ({
+        questionNo: q.label,
+        maxMarks: q.maxMarks,
+        awardedMarks: q.awardedMarks || 0,
+      })),
+      totalMaxMarks: totalMaxMarks,
+      totalObtainedMarks: totalAwardedMarks,
+      percentage: ((totalAwardedMarks / totalMaxMarks) * 100).toFixed(2),
+      grade: getGrade((totalAwardedMarks / totalMaxMarks) * 100),
+      evaluatedBy: 'Teacher', // In production, get from auth context
+      evaluatedAt: new Date().toISOString(),
+    };
+    
+    setGeneratedMarksheet(marksheet);
+    
+    // Save marksheet to localStorage for access in StudentManagement
+    const existingMarksheets = JSON.parse(localStorage.getItem('marksheets') || '[]');
+    localStorage.setItem('marksheets', JSON.stringify([...existingMarksheets, marksheet]));
+    
+    setShowStudentInfoDialog(false);
+    setMarksheetDialogOpen(true);
+    showSnackbar('Marksheet generated successfully!', 'success');
+  };
+
+  // Get grade based on percentage
+  const getGrade = (percentage) => {
+    if (percentage >= 90) return 'A+';
+    if (percentage >= 80) return 'A';
+    if (percentage >= 70) return 'B+';
+    if (percentage >= 60) return 'B';
+    if (percentage >= 50) return 'C';
+    if (percentage >= 40) return 'D';
+    return 'F';
+  };
+
+  const handleConfirmIncomplete = () => {
     setConfirmDialog({ open: false, type: '', title: '', message: '' });
-    // In real app, save to backend
+    setShowStudentInfoDialog(true);
   };
 
   const handleRejectPaper = () => {
@@ -701,7 +790,7 @@ function ManualChecking() {
       sx={{
         display: 'flex',
         height: 'calc(100vh - 64px)',
-        bgcolor: '#f0f2f5',
+        bgcolor: isDark ? '#0f172a' : '#f0f2f5',
         overflow: 'hidden',
       }}
     >
@@ -1004,7 +1093,7 @@ function ManualChecking() {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: '#334155',
+          bgcolor: isDark ? '#334155' : '#64748b',
           position: 'relative',
         }}
       >
@@ -1016,8 +1105,8 @@ function ManualChecking() {
             justifyContent: 'space-between',
             px: 2,
             py: 1,
-            bgcolor: '#1e293b',
-            borderBottom: '1px solid #475569',
+            bgcolor: isDark ? '#1e293b' : '#475569',
+            borderBottom: `1px solid ${isDark ? '#475569' : '#64748b'}`,
           }}
         >
           <Typography variant="h6" sx={{ color: '#fff', fontWeight: 600 }}>
@@ -1173,8 +1262,8 @@ function ManualChecking() {
             justifyContent: 'center',
             gap: 1,
             py: 1,
-            bgcolor: '#1e293b',
-            borderTop: '1px solid #475569',
+            bgcolor: isDark ? '#1e293b' : '#475569',
+            borderTop: `1px solid ${isDark ? '#475569' : '#64748b'}`,
           }}
         >
           <IconButton
@@ -1229,24 +1318,58 @@ function ManualChecking() {
           display: 'flex',
           flexDirection: 'column',
           borderRadius: 0,
-          bgcolor: '#fff',
+          bgcolor: isDark ? theme.palette.background.paper : '#fff',
         }}
       >
+        {/* Currently scoring indicator */}
+        <Box
+          sx={{
+            p: 1.5,
+            bgcolor: isDark ? 'rgba(99, 102, 241, 0.15)' : 'rgba(99, 102, 241, 0.1)',
+            borderBottom: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1,
+          }}
+        >
+          <Typography variant="body2" sx={{ color: isDark ? '#a5b4fc' : '#6366f1', fontWeight: 500 }}>
+            Now Scoring:
+          </Typography>
+          <Chip
+            label={questions[selectedQuestionIndex]?.label || 'Q1'}
+            size="small"
+            sx={{
+              bgcolor: '#6366f1',
+              color: '#fff',
+              fontWeight: 700,
+              animation: 'pulse 2s infinite',
+              '@keyframes pulse': {
+                '0%, 100%': { boxShadow: '0 0 0 0 rgba(99, 102, 241, 0.4)' },
+                '50%': { boxShadow: '0 0 0 8px rgba(99, 102, 241, 0)' },
+              },
+            }}
+          />
+          <Typography variant="body2" sx={{ color: isDark ? '#94a3b8' : '#64748b' }}>
+            (max: {questions[selectedQuestionIndex]?.maxMarks || 0})
+          </Typography>
+        </Box>
+
         {/* Questions header */}
         <Box
           sx={{
             p: 2,
-            bgcolor: '#f1f5f9',
-            borderBottom: '1px solid #e2e8f0',
+            bgcolor: isDark ? '#334155' : '#f1f5f9',
+            borderBottom: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
           }}
         >
           <TableContainer>
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 700, color: '#1e293b' }}>Questions</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700, color: '#1e293b' }}>Out of</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700, color: '#1e293b' }}>Evaluator Score</TableCell>
+                  <TableCell sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>Questions</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>Out of</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>Evaluator Score</TableCell>
                 </TableRow>
               </TableHead>
             </Table>
@@ -1255,18 +1378,29 @@ function ManualChecking() {
 
         {/* Questions list */}
         <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-          {questions.map((question) => (
+          {questions.map((question, index) => (
             <Box
               key={question.id}
+              onClick={() => setSelectedQuestionIndex(index)}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 1,
                 py: 1.5,
                 px: 1,
-                borderBottom: '1px solid #e2e8f0',
+                borderBottom: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
+                cursor: 'pointer',
+                bgcolor: selectedQuestionIndex === index 
+                  ? (isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)') 
+                  : 'transparent',
+                borderLeft: selectedQuestionIndex === index 
+                  ? '4px solid #6366f1' 
+                  : '4px solid transparent',
+                transition: 'all 0.2s ease',
                 '&:hover': {
-                  bgcolor: '#f8fafc',
+                  bgcolor: selectedQuestionIndex === index 
+                    ? (isDark ? 'rgba(99, 102, 241, 0.25)' : 'rgba(99, 102, 241, 0.15)')
+                    : (isDark ? '#334155' : '#f8fafc'),
                 },
               }}
             >
@@ -1274,16 +1408,17 @@ function ManualChecking() {
                 label={question.label}
                 sx={{
                   minWidth: 48,
-                  bgcolor: '#06b6d4',
+                  bgcolor: selectedQuestionIndex === index ? '#6366f1' : '#06b6d4',
                   color: '#fff',
                   fontWeight: 600,
+                  transition: 'all 0.2s ease',
                 }}
               />
               <Typography
                 sx={{
                   flex: 1,
                   textAlign: 'center',
-                  color: '#64748b',
+                  color: isDark ? '#94a3b8' : '#64748b',
                 }}
               >
                 {question.maxMarks}
@@ -1292,7 +1427,17 @@ function ManualChecking() {
                 type="number"
                 size="small"
                 value={question.awardedMarks ?? ''}
-                onChange={(e) => handleMarksChange(question.id, e.target.value)}
+                onChange={(e) => {
+                  handleMarksChange(question.id, e.target.value);
+                  // Auto-advance to next question after manual input
+                  if (e.target.value !== '' && index < questions.length - 1) {
+                    setTimeout(() => setSelectedQuestionIndex(index + 1), 300);
+                  }
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedQuestionIndex(index);
+                }}
                 inputProps={{
                   min: 0,
                   max: question.maxMarks,
@@ -1301,9 +1446,18 @@ function ManualChecking() {
                 sx={{
                   width: 70,
                   '& .MuiOutlinedInput-root': {
-                    bgcolor: question.awardedMarks !== null ? alpha('#22c55e', 0.1) : '#fff',
+                    bgcolor: question.awardedMarks !== null 
+                      ? alpha('#22c55e', 0.1) 
+                      : selectedQuestionIndex === index 
+                        ? (isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)')
+                        : (isDark ? '#334155' : '#fff'),
                     '& fieldset': {
-                      borderColor: question.awardedMarks !== null ? '#22c55e' : '#e2e8f0',
+                      borderColor: question.awardedMarks !== null 
+                        ? '#22c55e' 
+                        : selectedQuestionIndex === index 
+                          ? '#6366f1'
+                          : (isDark ? '#475569' : '#e2e8f0'),
+                      borderWidth: selectedQuestionIndex === index ? 2 : 1,
                     },
                   },
                 }}
@@ -1316,8 +1470,8 @@ function ManualChecking() {
         <Box
           sx={{
             p: 2,
-            bgcolor: '#f1f5f9',
-            borderTop: '1px solid #e2e8f0',
+            bgcolor: isDark ? '#334155' : '#f1f5f9',
+            borderTop: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
           }}
         >
           <Button
@@ -1343,7 +1497,7 @@ function ManualChecking() {
             display: 'flex',
             gap: 1,
             p: 2,
-            borderTop: '1px solid #e2e8f0',
+            borderTop: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
           }}
         >
           <Button
@@ -1408,8 +1562,8 @@ function ManualChecking() {
             alignItems: 'center',
             justifyContent: 'space-between',
             p: 2,
-            bgcolor: '#f8fafc',
-            borderTop: '1px solid #e2e8f0',
+            bgcolor: isDark ? '#334155' : '#f8fafc',
+            borderTop: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1434,7 +1588,7 @@ function ManualChecking() {
             gap: 0.5,
             p: 2,
             justifyContent: 'center',
-            borderTop: '1px solid #e2e8f0',
+            borderTop: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
           }}
         >
           {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
@@ -1556,7 +1710,7 @@ function ManualChecking() {
             onClick={() => {
               if (confirmDialog.type === 'reject') confirmReject();
               else if (confirmDialog.type === 'ufm') confirmUFM();
-              else if (confirmDialog.type === 'warning') submitPaper();
+              else if (confirmDialog.type === 'warning') handleConfirmIncomplete();
               else if (confirmDialog.type === 'clear') {
                 handleClearAnnotations();
                 setConfirmDialog({ ...confirmDialog, open: false });
@@ -1564,6 +1718,333 @@ function ManualChecking() {
             }}
           >
             Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Student Info Dialog - Before generating marksheet */}
+      <Dialog
+        open={showStudentInfoDialog}
+        onClose={() => setShowStudentInfoDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: isDark ? '#1e293b' : '#f8fafc', borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PersonIcon color="primary" />
+            <Typography variant="h6" fontWeight={600}>Enter Student Details</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            <TextField
+              label="Student Name"
+              fullWidth
+              value={studentInfo.name}
+              onChange={(e) => setStudentInfo(prev => ({ ...prev, name: e.target.value }))}
+              required
+            />
+            <TextField
+              label="Roll Number"
+              fullWidth
+              value={studentInfo.rollNo}
+              onChange={(e) => setStudentInfo(prev => ({ ...prev, rollNo: e.target.value }))}
+              required
+            />
+            <TextField
+              label="Class"
+              fullWidth
+              value={studentInfo.class}
+              onChange={(e) => setStudentInfo(prev => ({ ...prev, class: e.target.value }))}
+            />
+            <TextField
+              label="Paper/Exam Name"
+              fullWidth
+              value={studentInfo.paperName}
+              onChange={(e) => setStudentInfo(prev => ({ ...prev, paperName: e.target.value }))}
+              required
+            />
+            <TextField
+              label="Subject"
+              fullWidth
+              value={studentInfo.subject}
+              onChange={(e) => setStudentInfo(prev => ({ ...prev, subject: e.target.value }))}
+            />
+            <TextField
+              label="Exam Date"
+              type="date"
+              fullWidth
+              value={studentInfo.examDate}
+              onChange={(e) => setStudentInfo(prev => ({ ...prev, examDate: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+          <Button onClick={() => setShowStudentInfoDialog(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={submitPaper}
+            disabled={!studentInfo.name || !studentInfo.rollNo || !studentInfo.paperName}
+          >
+            Generate Marksheet
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Marksheet Preview Dialog */}
+      <Dialog
+        open={marksheetDialogOpen}
+        onClose={() => setMarksheetDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          bgcolor: isDark ? '#1e293b' : '#f8fafc', 
+          borderBottom: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AssessmentIcon color="primary" />
+            <Typography variant="h6" fontWeight={600}>Evaluation Marksheet</Typography>
+          </Box>
+          <Chip 
+            label={generatedMarksheet?.grade || 'N/A'} 
+            color={
+              generatedMarksheet?.grade === 'A+' || generatedMarksheet?.grade === 'A' ? 'success' :
+              generatedMarksheet?.grade === 'B+' || generatedMarksheet?.grade === 'B' ? 'primary' :
+              generatedMarksheet?.grade === 'C' ? 'warning' : 'error'
+            }
+            sx={{ fontWeight: 700, fontSize: '1rem', px: 2 }}
+          />
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {generatedMarksheet && (
+            <Box sx={{ p: 3 }}>
+              {/* Header Section */}
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 3,
+                  mb: 3,
+                  bgcolor: isDark ? 'rgba(99, 102, 241, 0.1)' : 'rgba(99, 102, 241, 0.05)',
+                  border: `1px solid ${isDark ? 'rgba(99, 102, 241, 0.3)' : 'rgba(99, 102, 241, 0.2)'}`,
+                  borderRadius: 2,
+                }}
+              >
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
+                  <Box>
+                    <Typography variant="h5" fontWeight={700} color="primary.main" gutterBottom>
+                      {generatedMarksheet.studentInfo.name}
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary">
+                      Roll No: <strong>{generatedMarksheet.studentInfo.rollNo}</strong>
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary">
+                      Class: <strong>{generatedMarksheet.studentInfo.class || 'N/A'}</strong>
+                    </Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="body1" color="text.secondary">
+                      Paper: <strong>{generatedMarksheet.paperDetails.paperName}</strong>
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary">
+                      Subject: <strong>{generatedMarksheet.paperDetails.subject || 'N/A'}</strong>
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary">
+                      Date: <strong>{new Date(generatedMarksheet.paperDetails.examDate).toLocaleDateString()}</strong>
+                    </Typography>
+                  </Box>
+                </Box>
+              </Paper>
+
+              {/* Evaluation Table */}
+              <TableContainer component={Paper} elevation={0} sx={{ border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`, mb: 3 }}>
+                <Table>
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: isDark ? '#334155' : '#f1f5f9' }}>
+                      <TableCell sx={{ fontWeight: 700 }}>Question No.</TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 700 }}>Out of</TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 700 }}>Evaluator Score</TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 700 }}>Percentage</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {generatedMarksheet.evaluation.map((item, index) => (
+                      <TableRow 
+                        key={index}
+                        sx={{ 
+                          bgcolor: item.awardedMarks === item.maxMarks 
+                            ? (isDark ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.05)')
+                            : item.awardedMarks === 0 
+                              ? (isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)')
+                              : 'transparent'
+                        }}
+                      >
+                        <TableCell>
+                          <Chip 
+                            label={item.questionNo} 
+                            size="small" 
+                            sx={{ 
+                              bgcolor: '#06b6d4', 
+                              color: '#fff', 
+                              fontWeight: 600,
+                              minWidth: 45,
+                            }} 
+                          />
+                        </TableCell>
+                        <TableCell align="center">{item.maxMarks}</TableCell>
+                        <TableCell align="center">
+                          <Typography 
+                            fontWeight={600} 
+                            color={
+                              item.awardedMarks === item.maxMarks ? 'success.main' :
+                              item.awardedMarks >= item.maxMarks * 0.5 ? 'primary.main' :
+                              item.awardedMarks > 0 ? 'warning.main' : 'error.main'
+                            }
+                          >
+                            {item.awardedMarks}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          {((item.awardedMarks / item.maxMarks) * 100).toFixed(0)}%
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Summary Section */}
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 3,
+                  bgcolor: isDark ? '#334155' : '#f8fafc',
+                  border: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
+                  borderRadius: 2,
+                }}
+              >
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Total Marks</Typography>
+                    <Typography variant="h4" fontWeight={700}>
+                      <span style={{ color: '#6366f1' }}>{generatedMarksheet.totalObtainedMarks}</span>
+                      <span style={{ color: isDark ? '#94a3b8' : '#64748b' }}> / {generatedMarksheet.totalMaxMarks}</span>
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Percentage</Typography>
+                    <Typography variant="h4" fontWeight={700} color={
+                      parseFloat(generatedMarksheet.percentage) >= 60 ? 'success.main' :
+                      parseFloat(generatedMarksheet.percentage) >= 40 ? 'warning.main' : 'error.main'
+                    }>
+                      {generatedMarksheet.percentage}%
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Grade</Typography>
+                    <Typography variant="h4" fontWeight={700} color="primary.main">
+                      {generatedMarksheet.grade}
+                    </Typography>
+                  </Box>
+                </Box>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="caption" color="text.secondary">
+                  Evaluated by: {generatedMarksheet.evaluatedBy} | Date: {new Date(generatedMarksheet.evaluatedAt).toLocaleString()}
+                </Typography>
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<EmailIcon />}
+            onClick={() => {
+              // Send via Gmail compose
+              const email = 'kunalekare02@gmail.com';
+              const studentName = generatedMarksheet?.studentInfo?.name || 'Student';
+              const subject = `Evaluation Marksheet - ${studentName} | ${generatedMarksheet?.paperDetails?.paperName || 'Exam'}`;
+              
+              // Create professional email body
+              const evaluationRows = generatedMarksheet?.evaluation?.map(item => 
+                `   Q${item.questionNo}:  ${item.awardedMarks} / ${item.maxMarks}  (${((item.awardedMarks / item.maxMarks) * 100).toFixed(0)}%)`
+              ).join('\n') || '';
+              
+              const body = 
+`Dear ${studentName},
+
+Please find below your evaluation marksheet for the recently conducted examination.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          EVALUATION MARKSHEET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STUDENT INFORMATION
+──────────────────────────────────────
+   Name:        ${generatedMarksheet?.studentInfo?.name}
+   Roll No:     ${generatedMarksheet?.studentInfo?.rollNo}
+   Class:       ${generatedMarksheet?.studentInfo?.class || 'N/A'}
+
+EXAMINATION DETAILS
+──────────────────────────────────────
+   Paper:       ${generatedMarksheet?.paperDetails?.paperName}
+   Subject:     ${generatedMarksheet?.paperDetails?.subject || 'N/A'}
+   Date:        ${new Date(generatedMarksheet?.paperDetails?.examDate).toLocaleDateString()}
+
+QUESTION-WISE EVALUATION
+──────────────────────────────────────
+${evaluationRows}
+
+RESULT SUMMARY
+──────────────────────────────────────
+   Total Marks:    ${generatedMarksheet?.totalObtainedMarks} / ${generatedMarksheet?.totalMaxMarks}
+   Percentage:     ${generatedMarksheet?.percentage}%
+   Grade:          ${generatedMarksheet?.grade}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This is an official evaluation report generated by the Answer Evaluation System.
+
+Evaluated by: ${generatedMarksheet?.evaluatedBy}
+Date & Time:  ${new Date(generatedMarksheet?.evaluatedAt).toLocaleString()}
+
+If you have any queries regarding this evaluation, please contact your teacher.
+
+Best Regards,
+Examination Department`;
+
+              // Open Gmail compose
+              const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+              window.open(gmailUrl, '_blank');
+              showSnackbar('Opening Gmail compose...', 'info');
+            }}
+          >
+            Send
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              // Print functionality
+              window.print();
+            }}
+          >
+            Print
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => {
+              setMarksheetDialogOpen(false);
+              showSnackbar('Marksheet saved successfully!', 'success');
+            }}
+          >
+            Done
           </Button>
         </DialogActions>
       </Dialog>

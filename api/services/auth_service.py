@@ -201,6 +201,22 @@ class AuthService:
             user.last_login = datetime.utcnow()
             db.commit()
             
+            # Extract user data before closing session to avoid DetachedInstanceError
+            user_data = {
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "role": role,
+                "user_unique_id": getattr(user, f"{role}_id", str(user.id)),
+                "status": user.status.value if hasattr(user, 'status') else "active",
+            }
+            
+            # Add role-specific fields
+            if hasattr(user, 'phone'):
+                user_data["phone"] = user.phone
+            if hasattr(user, 'profile_image'):
+                user_data["profile_image"] = user.profile_image
+            
             # Log activity
             self._log_activity(
                 db=db,
@@ -209,11 +225,11 @@ class AuthService:
                 activity_type=ActivityType.LOGIN,
                 action="user_login",
                 resource_type=role,
-                resource_id=getattr(user, f"{role}_id", str(user.id)),
+                resource_id=user_data["user_unique_id"],
                 ip_address=ip_address
             )
             
-            return user, None
+            return user_data, None
             
         except Exception as e:
             logger.error(f"Authentication error: {e}")
@@ -235,19 +251,19 @@ class AuthService:
         Returns:
             Tuple of (Token object, error_message)
         """
-        user, error = self.authenticate_user(email, password, role, ip_address)
+        user_data, error = self.authenticate_user(email, password, role, ip_address)
         
         if error:
             return None, error
         
-        # Create token payload
-        user_unique_id = getattr(user, f"{role}_id", str(user.id))
+        # Create token payload - user_data is now a dictionary
+        user_unique_id = user_data.get("user_unique_id", str(user_data["id"]))
         token_data = {
-            "sub": str(user.id),
-            "user_id": user.id,
+            "sub": str(user_data["id"]),
+            "user_id": user_data["id"],
             "user_unique_id": user_unique_id,
-            "email": user.email,
-            "name": user.name,
+            "email": user_data["email"],
+            "name": user_data["name"],
             "role": role
         }
         
@@ -260,7 +276,7 @@ class AuthService:
         try:
             token_record = RefreshToken(
                 token=refresh_token,
-                user_id=user.id,
+                user_id=user_data["id"],
                 user_role=UserRole(role),
                 expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
             )
@@ -273,19 +289,18 @@ class AuthService:
             db.close()
         
         # Prepare user data for response
-        user_data = user.to_dict() if hasattr(user, 'to_dict') else {
+        response_user_data = {
             "id": user_unique_id,
-            "email": user.email,
-            "name": user.name,
+            "email": user_data["email"],
+            "name": user_data["name"],
             "role": role
         }
-        user_data["role"] = role
         
         return Token(
             access_token=access_token,
             refresh_token=refresh_token,
             expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            user=user_data
+            user=response_user_data
         ), None
     
     def refresh_access_token(self, refresh_token: str) -> Tuple[Optional[str], Optional[str]]:
