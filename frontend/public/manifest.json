@@ -25,7 +25,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#6366f1",
-  "background_color": "#0f172a",
+  "background_color": "#212328",
   "description": "AI-powered system for automated evaluation of student answers",
   "categories": ["education", "productivity"],
   "prefer_related_applications": false
