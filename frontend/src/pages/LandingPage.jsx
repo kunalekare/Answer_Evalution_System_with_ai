@@ -1,7 +1,7 @@
 /**
  * Landing Page - Professional Hero Section
  * ==========================================
- * Modern, animated landing page for AssessIQ
+ * Modern, animated landing page for PaperEval
  * 
  * Features:
  * - Professional sticky header with auth

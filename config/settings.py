@@ -51,11 +51,12 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: list = [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".jfif", ".webp", ".gif"]
     
     # ========== OCR Settings ==========
-    OCR_ENGINE: str = "sarvam"  # Use advanced OCR APIs for handwriting
+    OCR_ENGINE: str = "ensemble"  # Ensemble: PaddleOCR + EasyOCR + Tesseract (90%+ accuracy)
+    # Options: "ensemble", "easyocr", "tesseract", "paddleocr", "sarvam"
     OCR_LANGUAGES: list = ["en"]  # Languages for OCR
-    TESSERACT_PATH: Optional[str] = None  # Path to tesseract executable
+    TESSERACT_PATH: Optional[str] = None  # Path to tesseract executable (auto-detect if None)
     LOW_MEMORY_MODE: bool = False  # Disable for better OCR accuracy
-    FAST_OCR_MODE: bool = True  # Skip heavy preprocessing for faster OCR
+    FAST_OCR_MODE: bool = True  # Use engine-specific preprocessing (fewer variants, faster)
     
     # ========== Sarvam AI OCR Settings ==========
     SARVAM_API_KEY: str = "sk_dejvv3m8_y0cDisH2QsCaSUW6zvA7oYNd"  # Sarvam AI API key

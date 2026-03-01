@@ -227,8 +227,8 @@ export default function AuthModal({ open, onClose, initialMode = 'signin' }) {
           </Typography>
           <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
             {mode === 'signin' 
-              ? 'Sign in to continue to AssessIQ' 
-              : 'Join AssessIQ to get started'}
+              ? 'Sign in to continue to PaperEval' 
+              : 'Join PaperEval to get started'}
           </Typography>
         </Box>
       </Box>
@@ -413,17 +413,17 @@ export default function AuthModal({ open, onClose, initialMode = 'signin' }) {
                   <Box sx={{ mt: 1, display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, flexWrap: 'wrap', gap: 0.5 }}>
                     <Chip 
                       size="small" 
-                      label="admin@assessiq.com / admin123"
+                      label="admin@papereval.com / admin123"
                       sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' }, height: { xs: 22, sm: 24 } }}
                     />
                     <Chip 
                       size="small" 
-                      label="teacher@assessiq.com / teacher123"
+                      label="teacher@papereval.com / teacher123"
                       sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' }, height: { xs: 22, sm: 24 } }}
                     />
                     <Chip 
                       size="small" 
-                      label="student@assessiq.com / student123"
+                      label="student@papereval.com / student123"
                       sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' }, height: { xs: 22, sm: 24 } }}
                     />
                   </Box>

@@ -1,8 +1,8 @@
 {
-  "name": "assessiq-frontend",
+  "name": "PaperEval-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "AssessIQ - AI-Powered Student Answer Evaluation System Frontend",
+  "description": "PaperEval - AI-Powered Student Answer Evaluation System Frontend",
   "dependencies": {
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",

@@ -63,9 +63,9 @@ const AuthContext = createContext(null);
 
 // Demo/Mock users for testing (used when backend is unavailable)
 const DEMO_USERS = [
-  { id: 1, email: 'admin@assessiq.com', password: 'admin123', name: 'Admin User', role: ROLES.ADMIN },
-  { id: 2, email: 'teacher@assessiq.com', password: 'teacher123', name: 'Dr. Sarah Johnson', role: ROLES.TEACHER },
-  { id: 3, email: 'student@assessiq.com', password: 'student123', name: 'John Student', role: ROLES.STUDENT },
+  { id: 1, email: 'admin@papereval.com', password: 'admin123', name: 'Admin User', role: ROLES.ADMIN },
+  { id: 2, email: 'teacher@papereval.com', password: 'teacher123', name: 'Dr. Sarah Johnson', role: ROLES.TEACHER },
+  { id: 3, email: 'student@papereval.com', password: 'student123', name: 'John Student', role: ROLES.STUDENT },
 ];
 
 export function AuthProvider({ children }) {

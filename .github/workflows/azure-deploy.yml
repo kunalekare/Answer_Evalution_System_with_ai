@@ -1,4 +1,4 @@
-name: Deploy AssessIQ to Azure
+name: Deploy PaperEval to Azure
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: assessiq-backend # Change to your App Service name
-  ACR_NAME: assessiqregistry # Change to your Container Registry name
+  AZURE_WEBAPP_NAME: papereval-backend # Change to your App Service name
+  ACR_NAME: paperevalregistry # Change to your Container Registry name
 
 jobs:
   # ==================== BACKEND DEPLOYMENT ====================

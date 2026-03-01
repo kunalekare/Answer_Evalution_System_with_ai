@@ -1,4 +1,4 @@
-# AssessIQ - Final Project Report Structure
+# PaperEval - Final Project Report Structure
 
 # ==========================================
 
@@ -11,7 +11,7 @@ DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
 
 6th Semester B.Tech Project Report
 
-Title: AssessIQ - AI-Powered Student Answer Evaluation System
+Title: PaperEval - AI-Powered Student Answer Evaluation System
 
 Submitted By:
 [Your Name] - [Roll Number]
@@ -80,7 +80,7 @@ Under the Guidance of:
    - 8.3 Limitations
    - 8.4 Future Enhancements
 
-9. References
+9. References  
 
 10. Appendices
     - A. Source Code

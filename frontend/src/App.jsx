@@ -1,5 +1,5 @@
 /**
- * AssessIQ - Main Application Component
+ * PaperEval - Main Application Component
  * ======================================
  * AI-Powered Student Answer Evaluation System
  *

@@ -1,5 +1,5 @@
 /**
- * Community Page - AssessIQ
+ * Community Page - PaperEval
  * ==========================
  * Professional WhatsApp-like community management with grievance system.
  * 

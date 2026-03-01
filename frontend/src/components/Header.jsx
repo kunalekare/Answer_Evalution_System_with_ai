@@ -187,7 +187,7 @@ export default function Header() {
                   WebkitTextFillColor: 'transparent',
                 }}
               >
-                AssessIQ
+                PaperEval
               </Typography>
             </Box>
 
@@ -428,7 +428,7 @@ export default function Header() {
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
               }}>
-                AssessIQ
+                PaperEval
               </Typography>
             </Box>
             <IconButton onClick={() => setMobileMenuOpen(false)} size="small">

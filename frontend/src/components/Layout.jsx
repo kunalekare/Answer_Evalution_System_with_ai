@@ -188,7 +188,7 @@ function Layout({ children }) {
                 WebkitTextFillColor: 'transparent',
               }}
             >
-              AssessIQ
+              PaperEval
             </Typography>
             <Typography variant="caption" color="text.secondary">
               Smart Evaluation System
@@ -391,7 +391,7 @@ function Layout({ children }) {
                 maxWidth: { xs: 150, sm: 200, md: 'none' },
               }}
             >
-              {menuItems.find((item) => item.path === location.pathname)?.text || 'AssessIQ'}
+              {menuItems.find((item) => item.path === location.pathname)?.text || 'PaperEval'}
             </Typography>
           </Box>
 
