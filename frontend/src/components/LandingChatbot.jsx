@@ -606,15 +606,17 @@ export default function LandingChatbot() {
           {open ? (
             <CloseIcon sx={{ fontSize: 26, color: '#fff' }} />
           ) : (
-            <Box
-              component="img"
-              src="/logo.png"
-              alt="PaperEval"
+            <BotIcon
               sx={{
-                width: 42,
-                height: 42,
-                objectFit: 'cover',
-                borderRadius: '50%',
+                fontSize: 32,
+                color: '#fff',
+                animation: 'robotBounce 2s ease-in-out infinite',
+                '@keyframes robotBounce': {
+                  '0%, 100%': { transform: 'translateY(0) rotate(0deg)' },
+                  '25%': { transform: 'translateY(-3px) rotate(-8deg)' },
+                  '50%': { transform: 'translateY(0) rotate(0deg)' },
+                  '75%': { transform: 'translateY(-3px) rotate(8deg)' },
+                },
               }}
             />
           )}
