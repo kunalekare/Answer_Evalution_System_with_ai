@@ -291,6 +291,8 @@ export default function LandingChatbot() {
     }
   };
 
+  const robotSvg = '<svg viewBox="0 0 100 100" width="48" height="48" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#e0e7ff"/><stop offset="50%" stop-color="#c7d2fe"/><stop offset="100%" stop-color="#a5b4fc"/></linearGradient><linearGradient id="bg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ddd6fe"/><stop offset="50%" stop-color="#c4b5fd"/><stop offset="100%" stop-color="#a78bfa"/></linearGradient><linearGradient id="vg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#1e1b4b"/><stop offset="100%" stop-color="#312e81"/></linearGradient><filter id="sh"><feDropShadow dx="1" dy="2" stdDeviation="2" flood-color="#4c1d95" flood-opacity="0.35"/></filter></defs><line x1="50" y1="8" x2="50" y2="18" stroke="#e0e7ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="50" cy="6" r="4" fill="#4ade80"><animate attributeName="r" values="3.5;5;3.5" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.7;1;0.7" dur="2s" repeatCount="indefinite"/></circle><circle cx="50" cy="6" r="6" fill="none" stroke="#4ade80" stroke-width="1" opacity="0.3"><animate attributeName="r" values="5;9;5" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite"/></circle><rect x="18" y="28" width="6" height="14" rx="3" fill="url(#bg2)" filter="url(#sh)"/><rect x="76" y="28" width="6" height="14" rx="3" fill="url(#bg2)" filter="url(#sh)"/><rect x="26" y="18" width="48" height="38" rx="12" fill="url(#hg)" filter="url(#sh)"/><rect x="31" y="24" width="38" height="22" rx="8" fill="url(#vg)"/><rect x="31" y="24" width="38" height="22" rx="8" fill="none" stroke="#6366f1" stroke-width="0.8" opacity="0.5"/><ellipse cx="41" cy="35" rx="5" ry="5.5" fill="#4ade80"><animate attributeName="ry" values="5.5;1;5.5" dur="4s" repeatCount="indefinite"/></ellipse><ellipse cx="59" cy="35" rx="5" ry="5.5" fill="#4ade80"><animate attributeName="ry" values="5.5;1;5.5" dur="4s" repeatCount="indefinite"/></ellipse><ellipse cx="41" cy="35" rx="3" ry="3" fill="#86efac" opacity="0.6"/><ellipse cx="59" cy="35" rx="3" ry="3" fill="#86efac" opacity="0.6"/><circle cx="39" cy="33" r="1.5" fill="#fff" opacity="0.8"/><circle cx="57" cy="33" r="1.5" fill="#fff" opacity="0.8"/><path d="M43 41 Q50 46 57 41" stroke="#4ade80" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.8"/><rect x="43" y="55" width="14" height="6" rx="2" fill="url(#bg2)"/><rect x="30" y="60" width="40" height="26" rx="8" fill="url(#bg2)" filter="url(#sh)"/><circle cx="50" cy="72" r="7" fill="url(#vg)"/><circle cx="50" cy="72" r="5" fill="none" stroke="#8b5cf6" stroke-width="1.2"><animate attributeName="r" values="3;5;3" dur="2.5s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.5;1;0.5" dur="2.5s" repeatCount="indefinite"/></circle><circle cx="50" cy="72" r="2.5" fill="#8b5cf6"><animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite"/></circle><rect x="18" y="62" width="10" height="20" rx="5" fill="url(#bg2)" filter="url(#sh)"><animateTransform attributeName="transform" type="rotate" values="-5,23,72;5,23,72;-5,23,72" dur="3s" repeatCount="indefinite"/></rect><rect x="72" y="62" width="10" height="20" rx="5" fill="url(#bg2)" filter="url(#sh)"><animateTransform attributeName="transform" type="rotate" values="5,77,72;-5,77,72;5,77,72" dur="3s" repeatCount="indefinite"/></rect><circle cx="23" cy="83" r="4" fill="url(#hg)"><animateTransform attributeName="transform" type="rotate" values="-5,23,72;5,23,72;-5,23,72" dur="3s" repeatCount="indefinite"/></circle><circle cx="77" cy="83" r="4" fill="url(#hg)"><animateTransform attributeName="transform" type="rotate" values="5,77,72;-5,77,72;5,77,72" dur="3s" repeatCount="indefinite"/></circle><rect x="36" y="85" width="10" height="10" rx="4" fill="url(#bg2)" filter="url(#sh)"/><rect x="54" y="85" width="10" height="10" rx="4" fill="url(#bg2)" filter="url(#sh)"/><rect x="33" y="93" width="15" height="5" rx="2.5" fill="url(#hg)"/><rect x="52" y="93" width="15" height="5" rx="2.5" fill="url(#hg)"/></svg>';
+
   return (
     <>
       {/* ===== Chat Window ===== */}
@@ -566,43 +568,6 @@ export default function LandingChatbot() {
         )}
       </AnimatePresence>
 
-      {/* ===== Floating Logo Button ===== */}
-      <Tooltip title="Chat with PaperEval Assistant" placement="left" arrow>
-        <MotionBox
-          onClick={() => setOpen(!open)}
-          whileHover={{ scale: 1.08 }}
-          whileTap={{ scale: 0.95 }}
-          sx={{
-            position: 'fixed',
-            bottom: 24,
-            right: 24,
-            width: 62,
-            height: 62,
-            borderRadius: '50%',
-            cursor: 'pointer',
-            zIndex: 9998,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)',
-            boxShadow: '0 6px 30px rgba(99,102,241,0.5), 0 0 20px rgba(139,92,246,0.3)',
-            border: '2px solid rgba(255,255,255,0.15)',
-            overflow: 'hidden',
-            transition: 'box-shadow 0.3s',
-            '&:hover': {
-              boxShadow: '0 8px 40px rgba(99,102,241,0.6), 0 0 30px rgba(139,92,246,0.4)',
-            },
-            // Pulse animation when has new message
-            ...(hasNewMessage && !open && {
-              animation: 'chatPulse 2s infinite',
-              '@keyframes chatPulse': {
-                '0%': { boxShadow: '0 6px 30px rgba(99,102,241,0.5)' },
-                '50%': { boxShadow: '0 6px 30px rgba(99,102,241,0.5), 0 0 0 12px rgba(139,92,246,0.15)' },
-                '100%': { boxShadow: '0 6px 30px rgba(99,102,241,0.5)' },
-              },
-            }),
-          }}
-        >
       {/* ===== Floating Robot Button ===== */}
       <Tooltip title="Chat with PaperEval Assistant" placement="left" arrow>
         <MotionBox
@@ -642,7 +607,6 @@ export default function LandingChatbot() {
           {open ? (
             <CloseIcon sx={{ fontSize: 28, color: '#fff' }} />
           ) : (
-            /* 3D Robot Character SVG */
             <Box
               sx={{
                 width: 48, height: 48,
@@ -652,109 +616,8 @@ export default function LandingChatbot() {
                   '50%': { transform: 'translateY(-4px)' },
                 },
               }}
-            >
-              <svg viewBox="0 0 100 100" width="48" height="48" xmlns="http://www.w3.org/2000/svg">
-                {/* Antenna */}
-                <line x1="50" y1="8" x2="50" y2="18" stroke="#e0e7ff" strokeWidth="2.5" strokeLinecap="round" />
-                <circle cx="50" cy="6" r="4" fill="#4ade80">
-                  <animate attributeName="r" values="3.5;5;3.5" dur="2s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.7;1;0.7" dur="2s" repeatCount="indefinite" />
-                </circle>
-                <circle cx="50" cy="6" r="6" fill="none" stroke="#4ade80" strokeWidth="1" opacity="0.3">
-                  <animate attributeName="r" values="5;9;5" dur="2s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite" />
-                </circle>
-
-                {/* Head - 3D effect with gradient */}
-                <defs>
-                  <linearGradient id="headGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#e0e7ff" />
-                    <stop offset="50%" stopColor="#c7d2fe" />
-                    <stop offset="100%" stopColor="#a5b4fc" />
-                  </linearGradient>
-                  <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#ddd6fe" />
-                    <stop offset="50%" stopColor="#c4b5fd" />
-                    <stop offset="100%" stopColor="#a78bfa" />
-                  </linearGradient>
-                  <linearGradient id="visorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#1e1b4b" />
-                    <stop offset="100%" stopColor="#312e81" />
-                  </linearGradient>
-                  <filter id="shadow3d" x="-20%" y="-20%" width="140%" height="140%">
-                    <feDropShadow dx="1" dy="2" stdDeviation="2" floodColor="#4c1d95" floodOpacity="0.35" />
-                  </filter>
-                </defs>
-
-                {/* Ears */}
-                <rect x="18" y="28" width="6" height="14" rx="3" fill="url(#bodyGrad)" filter="url(#shadow3d)" />
-                <rect x="76" y="28" width="6" height="14" rx="3" fill="url(#bodyGrad)" filter="url(#shadow3d)" />
-
-                {/* Head */}
-                <rect x="26" y="18" width="48" height="38" rx="12" fill="url(#headGrad)" filter="url(#shadow3d)" />
-
-                {/* Visor / Face plate */}
-                <rect x="31" y="24" width="38" height="22" rx="8" fill="url(#visorGrad)" />
-                <rect x="31" y="24" width="38" height="22" rx="8" fill="none" stroke="#6366f1" strokeWidth="0.8" opacity="0.5" />
-
-                {/* Eyes - glowing */}
-                <ellipse cx="41" cy="35" rx="5" ry="5.5" fill="#4ade80">
-                  <animate attributeName="ry" values="5.5;1;5.5" dur="4s" repeatCount="indefinite" begin="0s" keyTimes="0;0.03;0.06;1" keySplines="0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1" calcMode="spline" />
-                </ellipse>
-                <ellipse cx="59" cy="35" rx="5" ry="5.5" fill="#4ade80">
-                  <animate attributeName="ry" values="5.5;1;5.5" dur="4s" repeatCount="indefinite" begin="0s" keyTimes="0;0.03;0.06;1" keySplines="0.4 0 0.2 1;0.4 0 0.2 1;0.4 0 0.2 1" calcMode="spline" />
-                </ellipse>
-                {/* Eye glow */}
-                <ellipse cx="41" cy="35" rx="3" ry="3" fill="#86efac" opacity="0.6" />
-                <ellipse cx="59" cy="35" rx="3" ry="3" fill="#86efac" opacity="0.6" />
-                {/* Eye shine */}
-                <circle cx="39" cy="33" r="1.5" fill="#fff" opacity="0.8" />
-                <circle cx="57" cy="33" r="1.5" fill="#fff" opacity="0.8" />
-
-                {/* Mouth - smiling */}
-                <path d="M43 41 Q50 46 57 41" stroke="#4ade80" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.8" />
-
-                {/* Neck */}
-                <rect x="43" y="55" width="14" height="6" rx="2" fill="url(#bodyGrad)" />
-
-                {/* Body */}
-                <rect x="30" y="60" width="40" height="26" rx="8" fill="url(#bodyGrad)" filter="url(#shadow3d)" />
-
-                {/* Chest detail - arc reactor style */}
-                <circle cx="50" cy="72" r="7" fill="url(#visorGrad)" />
-                <circle cx="50" cy="72" r="5" fill="none" stroke="#8b5cf6" strokeWidth="1.2">
-                  <animate attributeName="r" values="3;5;3" dur="2.5s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.5;1;0.5" dur="2.5s" repeatCount="indefinite" />
-                </circle>
-                <circle cx="50" cy="72" r="2.5" fill="#8b5cf6">
-                  <animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite" />
-                </circle>
-
-                {/* Arms */}
-                <rect x="18" y="62" width="10" height="20" rx="5" fill="url(#bodyGrad)" filter="url(#shadow3d)">
-                  <animateTransform attributeName="transform" type="rotate" values="-5,23,72;5,23,72;-5,23,72" dur="3s" repeatCount="indefinite" />
-                </rect>
-                <rect x="72" y="62" width="10" height="20" rx="5" fill="url(#bodyGrad)" filter="url(#shadow3d)">
-                  <animateTransform attributeName="transform" type="rotate" values="5,77,72;-5,77,72;5,77,72" dur="3s" repeatCount="indefinite" />
-                </rect>
-
-                {/* Hand circles */}
-                <circle cx="23" cy="83" r="4" fill="url(#headGrad)">
-                  <animateTransform attributeName="transform" type="rotate" values="-5,23,72;5,23,72;-5,23,72" dur="3s" repeatCount="indefinite" />
-                </circle>
-                <circle cx="77" cy="83" r="4" fill="url(#headGrad)">
-                  <animateTransform attributeName="transform" type="rotate" values="5,77,72;-5,77,72;5,77,72" dur="3s" repeatCount="indefinite" />
-                </circle>
-
-                {/* Legs */}
-                <rect x="36" y="85" width="10" height="10" rx="4" fill="url(#bodyGrad)" filter="url(#shadow3d)" />
-                <rect x="54" y="85" width="10" height="10" rx="4" fill="url(#bodyGrad)" filter="url(#shadow3d)" />
-
-                {/* Feet */}
-                <rect x="33" y="93" width="15" height="5" rx="2.5" fill="url(#headGrad)" />
-                <rect x="52" y="93" width="15" height="5" rx="2.5" fill="url(#headGrad)" />
-              </svg>
-            </Box>
+              dangerouslySetInnerHTML={{ __html: robotSvg }}
+            />
           )}
 
           {/* Notification badge */}
