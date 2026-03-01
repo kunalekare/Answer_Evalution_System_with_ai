@@ -66,6 +66,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import Header from '../components/Header';
 import AuthModal from '../components/AuthModal';
+import LandingChatbot from '../components/LandingChatbot';
 import { useAuth } from '../context/AuthContext';
 
 // Animated components
@@ -1611,6 +1612,9 @@ function LandingPage() {
           </Box>
         </DialogContent>
       </Dialog>
+
+      {/* Floating Chatbot */}
+      <LandingChatbot />
     </Box>
   );
 }
