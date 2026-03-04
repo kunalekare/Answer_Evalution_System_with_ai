@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import ParticleField from '../components/ParticleField';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -305,8 +306,11 @@ function LandingPage() {
           overflow: 'hidden',
         }}
       >
+        {/* Cursor-reactive particle field */}
+        <ParticleField />
+
         {/* Animated background elements */}
-        <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
           {/* Gradient orbs */}
           <MotionBox
             animate={{
