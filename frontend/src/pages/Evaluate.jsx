@@ -4,7 +4,7 @@
  * Main evaluation interface with file upload and text input.
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -50,7 +50,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 
-import { evaluateText, uploadAndEvaluate, extractTextFromUpload } from '../services/api';
+import { evaluateText, evaluateMultiQuestion, uploadAndEvaluate, extractTextFromUpload, fetchRubricPresets } from '../services/api';
 import axios from 'axios';
 
 // Motion components
@@ -90,6 +90,11 @@ function Evaluate() {
   const [subject, setSubject] = useState('');
   const [includeDiagram, setIncludeDiagram] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [rubricPreset, setRubricPreset] = useState('default');
+  const [rubricPresets, setRubricPresets] = useState(null);
+  const [customRubricWeights, setCustomRubricWeights] = useState(null);
+  const [useCustomRubric, setUseCustomRubric] = useState(false);
+  const [multiQuestionMode, setMultiQuestionMode] = useState(false);
   
   // Extracted text state
   const [evaluationId, setEvaluationId] = useState(null);
@@ -101,6 +106,45 @@ function Evaluate() {
   // Drag states
   const [modelDragActive, setModelDragActive] = useState(false);
   const [studentDragActive, setStudentDragActive] = useState(false);
+
+  // Fetch rubric presets on mount
+  useEffect(() => {
+    const loadPresets = async () => {
+      try {
+        const res = await fetchRubricPresets();
+        const data = res.data || res;
+        setRubricPresets(data);
+        // Initialize custom weights from default preset
+        if (data?.default?.dimensions) {
+          const weights = {};
+          Object.entries(data.default.dimensions).forEach(([key, dim]) => {
+            weights[key] = dim.weight_pct;
+          });
+          setCustomRubricWeights(weights);
+        }
+      } catch (err) {
+        console.warn('Failed to load rubric presets:', err);
+      }
+    };
+    loadPresets();
+  }, []);
+
+  // Build rubric_config from current state
+  const buildRubricConfig = () => {
+    if (!useCustomRubric && rubricPreset === 'default') return null;
+    if (useCustomRubric && customRubricWeights) {
+      return {
+        dimensions: Object.entries(customRubricWeights).map(([name, weightPct]) => ({
+          name,
+          weight: weightPct / 100,
+        })),
+      };
+    }
+    if (rubricPreset !== 'default') {
+      return { preset: rubricPreset };
+    }
+    return null;
+  };
 
   // Validate file type
   const isValidFileType = (file) => {
@@ -309,23 +353,43 @@ function Evaluate() {
       let result;
       
       if (useTextInput) {
-        // Use text-based evaluation
+        if (multiQuestionMode) {
+          // Multi-question per-question evaluation
+          result = await evaluateMultiQuestion({
+            model_answer: modelAnswerText,
+            student_answer: studentAnswerText,
+            question_type: questionType,
+            total_max_marks: maxMarks,
+            rubric_config: buildRubricConfig(),
+          });
+          // Multi-question returns data differently
+          const data = result.data || result;
+          toast.success(`Evaluated ${data.total_questions} questions!`);
+          navigate(`/results/${data.evaluation_id}`, { state: { result: data, isMultiQuestion: true } });
+          return;
+        }
+        // Single text-based evaluation
         result = await evaluateText({
           model_answer: modelAnswerText,
           student_answer: studentAnswerText,
           question_type: questionType,
           max_marks: maxMarks,
+          rubric_config: buildRubricConfig(),
         });
       } else {
         // Files already uploaded, just trigger evaluation
         toast.loading('Running AI evaluation...', { id: 'eval' });
         
-        const evalResponse = await axios.post(`${API_BASE_URL}/api/v1/evaluate/`, {
+        const evalBody = {
           evaluation_id: evaluationId,
           question_type: questionType,
           max_marks: maxMarks,
           include_diagram: includeDiagram,
-        }, {
+        };
+        const rc = buildRubricConfig();
+        if (rc) evalBody.rubric_config = rc;
+
+        const evalResponse = await axios.post(`${API_BASE_URL}/api/v1/evaluate/`, evalBody, {
           timeout: 120000,
         });
         
@@ -770,6 +834,118 @@ function Evaluate() {
                     <Typography variant="caption" display="block" color="text.secondary">
                       Enable this if the answer contains diagrams that need to be evaluated.
                     </Typography>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    {/* Rubric Configuration */}
+                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                      📊 Rubric Scoring
+                    </Typography>
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 2 }}>
+                      Choose a rubric preset or configure custom dimension weights for professional board-exam style evaluation.
+                    </Typography>
+
+                    <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                      <InputLabel>Rubric Preset</InputLabel>
+                      <Select
+                        value={rubricPreset}
+                        label="Rubric Preset"
+                        onChange={(e) => {
+                          setRubricPreset(e.target.value);
+                          setUseCustomRubric(false);
+                          // Load preset weights into custom for editing
+                          if (rubricPresets?.presets?.[e.target.value]?.dimensions) {
+                            const weights = {};
+                            Object.entries(rubricPresets.presets[e.target.value].dimensions).forEach(([key, dim]) => {
+                              weights[key] = dim.weight_pct;
+                            });
+                            setCustomRubricWeights(weights);
+                          } else if (rubricPresets?.default?.dimensions) {
+                            const weights = {};
+                            Object.entries(rubricPresets.default.dimensions).forEach(([key, dim]) => {
+                              weights[key] = dim.weight_pct;
+                            });
+                            setCustomRubricWeights(weights);
+                          }
+                        }}
+                      >
+                        <MenuItem value="default">Default (Balanced)</MenuItem>
+                        {rubricPresets?.presets && Object.entries(rubricPresets.presets).map(([key, preset]) => (
+                          <MenuItem key={key} value={key}>
+                            {key.charAt(0).toUpperCase() + key.slice(1)} — {preset.description?.slice(0, 60)}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={useCustomRubric}
+                          onChange={(e) => setUseCustomRubric(e.target.checked)}
+                        />
+                      }
+                      label="Customize Dimension Weights"
+                    />
+
+                    {useCustomRubric && customRubricWeights && (
+                      <Box sx={{ mt: 2, pl: 1 }}>
+                        {Object.entries(customRubricWeights).map(([dimName, weightPct]) => (
+                          <Box key={dimName} sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <Typography variant="body2" sx={{ minWidth: 140, textTransform: 'capitalize' }}>
+                              {dimName.replace(/_/g, ' ')}
+                            </Typography>
+                            <TextField
+                              type="number"
+                              size="small"
+                              value={weightPct}
+                              onChange={(e) => {
+                                const val = Math.max(0, Math.min(100, parseInt(e.target.value) || 0));
+                                setCustomRubricWeights((prev) => ({ ...prev, [dimName]: val }));
+                              }}
+                              inputProps={{ min: 0, max: 100, step: 5 }}
+                              sx={{ width: 80 }}
+                            />
+                            <Typography variant="caption" color="text.secondary">%</Typography>
+                          </Box>
+                        ))}
+                        <Typography variant="caption" color={
+                          Object.values(customRubricWeights).reduce((a, b) => a + b, 0) === 100
+                            ? 'success.main'
+                            : 'warning.main'
+                        }>
+                          Total: {Object.values(customRubricWeights).reduce((a, b) => a + b, 0)}%
+                          {Object.values(customRubricWeights).reduce((a, b) => a + b, 0) !== 100 &&
+                            ' (weights will be auto-normalised)'}
+                        </Typography>
+                  </Box>
+                    )}
+
+                    <Divider sx={{ my: 2 }} />
+
+                    {/* Per-Question Evaluation */}
+                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                      📝 Per-Question Evaluation
+                    </Typography>
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 1 }}>
+                      Enable this when the answer sheet contains multiple questions (Q1, Q2, Q3…). 
+                      Each question is evaluated independently with its own score and grade.
+                    </Typography>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={multiQuestionMode}
+                          onChange={(e) => setMultiQuestionMode(e.target.checked)}
+                        />
+                      }
+                      label="Enable Per-Question Grading"
+                    />
+                    {multiQuestionMode && (
+                      <Alert severity="info" sx={{ mt: 1, fontSize: '0.8rem' }}>
+                        <strong>Tip:</strong> Number each answer in both Model and Student text (e.g. "1. …", "Q1. …", "Question 1: …").
+                        The system auto-detects question boundaries and evaluates each independently.
+                      </Alert>
+                    )}
                   </Paper>
                 </Collapse>
               </Grid>

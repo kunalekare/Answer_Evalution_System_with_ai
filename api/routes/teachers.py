@@ -16,7 +16,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
@@ -50,6 +50,32 @@ class CreateStudentRequest(BaseModel):
     class_id: Optional[int] = None
     academic_year: Optional[str] = None
 
+    @field_validator('email', mode='before')
+    @classmethod
+    def empty_email_to_none(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
+
+    @field_validator('password', 'phone', 'enrollment_no', 'gender', 'date_of_birth', 'address', 'academic_year', mode='before')
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
+
+    @field_validator('class_id', mode='before')
+    @classmethod
+    def empty_class_id_to_none(cls, v):
+        if v == '' or v is None:
+            return None
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except ValueError:
+                return None
+        return v
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -76,6 +102,32 @@ class UpdateStudentRequest(BaseModel):
     address: Optional[str] = None
     class_id: Optional[int] = None
     status: Optional[str] = None
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def empty_email_to_none(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
+
+    @field_validator('name', 'phone', 'roll_no', 'enrollment_no', 'gender', 'address', 'status', mode='before')
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == '' or v is None:
+            return None
+        return v
+
+    @field_validator('class_id', mode='before')
+    @classmethod
+    def empty_class_id_to_none(cls, v):
+        if v == '' or v is None:
+            return None
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except ValueError:
+                return None
+        return v
 
 
 class CreateClassRequest(BaseModel):
@@ -498,6 +550,68 @@ async def delete_student(
     return {
         "success": True,
         "message": "Student deleted successfully"
+    }
+
+
+@router.get("/students/{student_id}/evaluations")
+async def get_student_evaluations(
+    student_id: str,
+    current_user: TokenData = Depends(get_current_teacher_only),
+    db: Session = Depends(get_db)
+):
+    """
+    Get evaluations for a specific student.
+    """
+    student = db.query(Student).filter(
+        Student.student_id == student_id,
+        Student.teacher_id == current_user.user_id
+    ).first()
+    
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    evaluations = db.query(Evaluation).filter(
+        Evaluation.student_id == student.id
+    ).order_by(desc(Evaluation.created_at)).all()
+    
+    manual_evals = db.query(ManualEvaluation).filter(
+        ManualEvaluation.student_id == student.id
+    ).order_by(desc(ManualEvaluation.created_at)).all()
+    
+    eval_list = []
+    for e in evaluations:
+        eval_list.append({
+            "id": e.id,
+            "evaluation_id": e.evaluation_id,
+            "subject": e.subject_name if hasattr(e, 'subject_name') else None,
+            "score": e.final_score,
+            "max_score": e.max_score,
+            "status": "reviewed" if e.is_reviewed else "pending",
+            "type": "ai",
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        })
+    
+    for me in manual_evals:
+        eval_list.append({
+            "id": me.id,
+            "evaluation_id": getattr(me, 'evaluation_id', None),
+            "subject": getattr(me, 'subject_name', None),
+            "score": me.total_score if hasattr(me, 'total_score') else None,
+            "max_score": me.max_score if hasattr(me, 'max_score') else None,
+            "status": "completed",
+            "type": "manual",
+            "created_at": me.created_at.isoformat() if me.created_at else None,
+        })
+    
+    # Sort by date
+    eval_list.sort(key=lambda x: x.get('created_at') or '', reverse=True)
+    
+    return {
+        "success": True,
+        "data": {
+            "evaluations": eval_list,
+            "total": len(eval_list)
+        }
     }
 
 

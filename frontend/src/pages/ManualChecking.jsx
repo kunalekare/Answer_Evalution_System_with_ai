@@ -86,6 +86,10 @@ import {
   Person as PersonIcon,
   Assessment as AssessmentIcon,
   Email as EmailIcon,
+  Add as AddIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  SubdirectoryArrowRight as SubQuestionIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -115,15 +119,9 @@ const COLORS = {
   BLACK: '#1f2937',
 };
 
-// Sample questions data - in real app, this would come from API
-const sampleQuestions = [
-  { id: 'Q1', label: 'Q1', maxMarks: 20, awardedMarks: null },
-  { id: 'Q2', label: 'Q2', maxMarks: 10, awardedMarks: null },
-  { id: 'Q3', label: 'Q3', maxMarks: 10, awardedMarks: null },
-  { id: 'Q4', label: 'Q4', maxMarks: 10, awardedMarks: null },
-  { id: 'Q5', label: 'Q5', maxMarks: 10, awardedMarks: null },
-  { id: 'Q6', label: 'Q6', maxMarks: 10, awardedMarks: null },
-  { id: 'Q7', label: 'Q7', maxMarks: 10, awardedMarks: null },
+// Default starting questions - users can customize
+const createDefaultQuestions = () => [
+  { id: 'Q1', label: 'Q1', maxMarks: 10, awardedMarks: null, subQuestions: [] },
 ];
 
 function ManualChecking() {
@@ -153,7 +151,7 @@ function ManualChecking() {
   const [totalPages, setTotalPages] = useState(8);
   const [visitedPages, setVisitedPages] = useState(new Set([1]));
   const [zoomLevel, setZoomLevel] = useState(100);
-  const [questions, setQuestions] = useState(sampleQuestions);
+  const [questions, setQuestions] = useState(createDefaultQuestions);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [uploadedImages, setUploadedImages] = useState([]);
@@ -169,6 +167,8 @@ function ManualChecking() {
   const [canvasDimensions, setCanvasDimensions] = useState({ width: 800, height: 1000 });
   const [pageAnnotations, setPageAnnotations] = useState({}); // Store annotations per page
   const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0); // Track selected question for auto-scoring
+  const [showQuestionSetup, setShowQuestionSetup] = useState(true); // Show question setup panel
+  const [expandedQuestions, setExpandedQuestions] = useState({}); // Track expanded sub-questions
   
   // Student & Paper Info for Marksheet
   const [studentInfo, setStudentInfo] = useState({
@@ -183,9 +183,118 @@ function ManualChecking() {
   const [generatedMarksheet, setGeneratedMarksheet] = useState(null);
   const [showStudentInfoDialog, setShowStudentInfoDialog] = useState(false);
 
-  // Calculate total score
-  const totalMaxMarks = questions.reduce((sum, q) => sum + q.maxMarks, 0);
-  const totalAwardedMarks = questions.reduce((sum, q) => sum + (q.awardedMarks || 0), 0);
+  // Flatten questions (parent + sub-questions) for scoring
+  const flatQuestions = questions.flatMap(q => 
+    q.subQuestions && q.subQuestions.length > 0 
+      ? q.subQuestions.map(sq => ({ ...sq, parentLabel: q.label }))
+      : [q]
+  );
+
+  // Calculate total score from flat list
+  const totalMaxMarks = flatQuestions.reduce((sum, q) => sum + (q.maxMarks || 0), 0);
+  const totalAwardedMarks = flatQuestions.reduce((sum, q) => sum + (q.awardedMarks || 0), 0);
+
+  // ========== Question Management Functions ==========
+  const addQuestion = () => {
+    const nextNum = questions.length + 1;
+    setQuestions(prev => [
+      ...prev,
+      { id: `Q${nextNum}_${Date.now()}`, label: `Q${nextNum}`, maxMarks: 10, awardedMarks: null, subQuestions: [] }
+    ]);
+  };
+
+  const removeQuestion = (qId) => {
+    if (questions.length <= 1) return;
+    setQuestions(prev => {
+      const filtered = prev.filter(q => q.id !== qId);
+      // Re-label remaining questions
+      return filtered.map((q, i) => ({ ...q, label: `Q${i + 1}` }));
+    });
+    // Reset selected index if needed
+    setSelectedQuestionIndex(prev => Math.min(prev, questions.length - 2));
+  };
+
+  const updateQuestionLabel = (qId, newLabel) => {
+    setQuestions(prev => prev.map(q => q.id === qId ? { ...q, label: newLabel } : q));
+  };
+
+  const updateQuestionMaxMarks = (qId, value) => {
+    const marks = value === '' ? 0 : Math.max(0, parseFloat(value) || 0);
+    setQuestions(prev => prev.map(q => {
+      if (q.id === qId) {
+        // If has sub-questions, update parent maxMarks as sum of sub-questions
+        return { ...q, maxMarks: marks };
+      }
+      return q;
+    }));
+  };
+
+  const addSubQuestion = (parentId) => {
+    setQuestions(prev => prev.map(q => {
+      if (q.id === parentId) {
+        const subCount = q.subQuestions.length + 1;
+        const subLabel = String.fromCharCode(96 + subCount); // a, b, c, d...
+        const newSub = {
+          id: `${parentId}_sub${subCount}_${Date.now()}`,
+          label: `${q.label}${subLabel}`,
+          maxMarks: 5,
+          awardedMarks: null,
+        };
+        const newSubs = [...q.subQuestions, newSub];
+        // Parent maxMarks becomes sum of sub-question marks
+        const totalSubMarks = newSubs.reduce((s, sq) => s + sq.maxMarks, 0);
+        return { ...q, subQuestions: newSubs, maxMarks: totalSubMarks, awardedMarks: null };
+      }
+      return q;
+    }));
+    setExpandedQuestions(prev => ({ ...prev, [parentId]: true }));
+  };
+
+  const removeSubQuestion = (parentId, subId) => {
+    setQuestions(prev => prev.map(q => {
+      if (q.id === parentId) {
+        const newSubs = q.subQuestions.filter(sq => sq.id !== subId);
+        // Re-label remaining sub-questions
+        const relabeled = newSubs.map((sq, i) => ({
+          ...sq,
+          label: `${q.label}${String.fromCharCode(97 + i)}`,
+        }));
+        if (relabeled.length === 0) {
+          return { ...q, subQuestions: [], maxMarks: q.maxMarks || 10 };
+        }
+        const totalSubMarks = relabeled.reduce((s, sq) => s + sq.maxMarks, 0);
+        return { ...q, subQuestions: relabeled, maxMarks: totalSubMarks };
+      }
+      return q;
+    }));
+  };
+
+  const updateSubQuestionMaxMarks = (parentId, subId, value) => {
+    const marks = value === '' ? 0 : Math.max(0, parseFloat(value) || 0);
+    setQuestions(prev => prev.map(q => {
+      if (q.id === parentId) {
+        const newSubs = q.subQuestions.map(sq =>
+          sq.id === subId ? { ...sq, maxMarks: marks } : sq
+        );
+        const totalSubMarks = newSubs.reduce((s, sq) => s + sq.maxMarks, 0);
+        return { ...q, subQuestions: newSubs, maxMarks: totalSubMarks };
+      }
+      return q;
+    }));
+  };
+
+  const updateSubQuestionLabel = (parentId, subId, newLabel) => {
+    setQuestions(prev => prev.map(q => {
+      if (q.id === parentId) {
+        return { ...q, subQuestions: q.subQuestions.map(sq => sq.id === subId ? { ...sq, label: newLabel } : sq) };
+      }
+      return q;
+    }));
+  };
+
+  const toggleExpandQuestion = (qId) => {
+    setExpandedQuestions(prev => ({ ...prev, [qId]: !prev[qId] }));
+  };
 
   // Convert PDF page to image
   const pdfPageToImage = async (pdfDoc, pageNum) => {
@@ -317,17 +426,44 @@ function ManualChecking() {
     });
   };
 
-  // Handle marks update
-  const handleMarksChange = (questionId, value) => {
-    const numValue = value === '' ? null : Math.max(0, Math.min(questions.find(q => q.id === questionId).maxMarks, parseInt(value) || 0));
-    setQuestions((prev) =>
-      prev.map((q) => (q.id === questionId ? { ...q, awardedMarks: numValue } : q))
-    );
+  // Handle marks update (supports both parent questions and sub-questions)
+  const handleMarksChange = (questionId, value, parentId = null) => {
+    if (parentId) {
+      // Sub-question marks change
+      setQuestions(prev => prev.map(q => {
+        if (q.id === parentId) {
+          const newSubs = q.subQuestions.map(sq => {
+            if (sq.id === questionId) {
+              const numVal = value === '' ? null : Math.max(0, Math.min(sq.maxMarks, parseInt(value) || 0));
+              return { ...sq, awardedMarks: numVal };
+            }
+            return sq;
+          });
+          // Parent's awardedMarks = sum of sub-question awarded marks
+          const parentAwarded = newSubs.reduce((s, sq) => s + (sq.awardedMarks || 0), 0);
+          return { ...q, subQuestions: newSubs, awardedMarks: newSubs.some(sq => sq.awardedMarks !== null) ? parentAwarded : null };
+        }
+        return q;
+      }));
+    } else {
+      // Parent question with no sub-questions
+      const question = questions.find(q => q.id === questionId);
+      if (!question) return;
+      const numValue = value === '' ? null : Math.max(0, Math.min(question.maxMarks, parseInt(value) || 0));
+      setQuestions(prev => prev.map(q => (q.id === questionId ? { ...q, awardedMarks: numValue } : q)));
+    }
   };
 
-  // Handle quick mark buttons
-  const handleQuickMark = (questionId, type) => {
-    const question = questions.find(q => q.id === questionId);
+  // Handle quick mark buttons (supports sub-questions)
+  const handleQuickMark = (questionId, type, parentId = null) => {
+    let question;
+    if (parentId) {
+      const parent = questions.find(q => q.id === parentId);
+      question = parent?.subQuestions?.find(sq => sq.id === questionId);
+    } else {
+      question = questions.find(q => q.id === questionId);
+    }
+    if (!question) return;
     let marks;
     switch (type) {
       case 'full':
@@ -345,7 +481,7 @@ function ManualChecking() {
       default:
         marks = null;
     }
-    handleMarksChange(questionId, marks);
+    handleMarksChange(questionId, marks, parentId);
   };
 
   // Canvas drawing handlers
@@ -531,24 +667,27 @@ function ManualChecking() {
       page: currentPage 
     }]);
 
-    // Auto-fill the score to the selected question
-    if (selectedQuestionIndex >= 0 && selectedQuestionIndex < questions.length) {
-      const selectedQuestion = questions[selectedQuestionIndex];
-      const scoreValue = Math.min(currentNumber, selectedQuestion.maxMarks);
+    // Auto-fill the score to the selected question (using flat list)
+    if (selectedQuestionIndex >= 0 && selectedQuestionIndex < flatQuestions.length) {
+      const selectedQ = flatQuestions[selectedQuestionIndex];
+      const scoreValue = Math.min(currentNumber, selectedQ.maxMarks);
       
-      setQuestions(prev => 
-        prev.map((q, idx) => 
-          idx === selectedQuestionIndex 
-            ? { ...q, awardedMarks: scoreValue } 
-            : q
-        )
+      // Find if this is a sub-question
+      const parentQ = questions.find(q => 
+        q.subQuestions?.some(sq => sq.id === selectedQ.id)
       );
       
+      if (parentQ) {
+        handleMarksChange(selectedQ.id, scoreValue, parentQ.id);
+      } else {
+        handleMarksChange(selectedQ.id, scoreValue);
+      }
+      
       // Show feedback
-      showSnackbar(`Q${selectedQuestionIndex + 1}: ${scoreValue}/${selectedQuestion.maxMarks} marks awarded`, 'success');
+      showSnackbar(`${selectedQ.label}: ${scoreValue}/${selectedQ.maxMarks} marks awarded`, 'success');
       
       // Auto-move to next question
-      if (selectedQuestionIndex < questions.length - 1) {
+      if (selectedQuestionIndex < flatQuestions.length - 1) {
         setSelectedQuestionIndex(prev => prev + 1);
       }
     }
@@ -615,13 +754,19 @@ function ManualChecking() {
 
   // Handle paper actions
   const handleFinishPaper = () => {
-    const unansweredQuestions = questions.filter(q => q.awardedMarks === null);
-    if (unansweredQuestions.length > 0) {
+    // Check unanswered: for questions with sub-questions, check sub-questions; otherwise check parent
+    const unanswered = questions.filter(q => {
+      if (q.subQuestions && q.subQuestions.length > 0) {
+        return q.subQuestions.some(sq => sq.awardedMarks === null);
+      }
+      return q.awardedMarks === null;
+    });
+    if (unanswered.length > 0) {
       setConfirmDialog({
         open: true,
         type: 'warning',
         title: 'Incomplete Evaluation',
-        message: `${unansweredQuestions.length} question(s) have not been marked. Do you want to continue?`
+        message: `Some questions have not been fully marked. Do you want to continue?`
       });
     } else {
       // Show student info dialog before generating marksheet
@@ -630,7 +775,28 @@ function ManualChecking() {
   };
 
   const submitPaper = () => {
-    // Generate marksheet
+    // Generate marksheet - flatten questions including sub-questions
+    const evaluationData = [];
+    questions.forEach((q) => {
+      if (q.subQuestions && q.subQuestions.length > 0) {
+        // Add each sub-question as a separate entry
+        q.subQuestions.forEach((sq) => {
+          evaluationData.push({
+            questionNo: sq.label,
+            maxMarks: sq.maxMarks,
+            awardedMarks: sq.awardedMarks || 0,
+            parentQuestion: q.label,
+          });
+        });
+      } else {
+        evaluationData.push({
+          questionNo: q.label,
+          maxMarks: q.maxMarks,
+          awardedMarks: q.awardedMarks || 0,
+        });
+      }
+    });
+
     const marksheet = {
       id: Date.now().toString(),
       studentInfo: { ...studentInfo },
@@ -640,15 +806,11 @@ function ManualChecking() {
         examDate: studentInfo.examDate,
         totalPages: totalPages,
       },
-      evaluation: questions.map((q, idx) => ({
-        questionNo: q.label,
-        maxMarks: q.maxMarks,
-        awardedMarks: q.awardedMarks || 0,
-      })),
+      evaluation: evaluationData,
       totalMaxMarks: totalMaxMarks,
       totalObtainedMarks: totalAwardedMarks,
-      percentage: ((totalAwardedMarks / totalMaxMarks) * 100).toFixed(2),
-      grade: getGrade((totalAwardedMarks / totalMaxMarks) * 100),
+      percentage: totalMaxMarks > 0 ? ((totalAwardedMarks / totalMaxMarks) * 100).toFixed(2) : '0.00',
+      grade: getGrade(totalMaxMarks > 0 ? (totalAwardedMarks / totalMaxMarks) * 100 : 0),
       evaluatedBy: 'Teacher', // In production, get from auth context
       evaluatedAt: new Date().toISOString(),
     };
@@ -1337,7 +1499,7 @@ function ManualChecking() {
             Now Scoring:
           </Typography>
           <Chip
-            label={questions[selectedQuestionIndex]?.label || 'Q1'}
+            label={flatQuestions[selectedQuestionIndex]?.label || 'Q1'}
             size="small"
             sx={{
               bgcolor: '#6366f1',
@@ -1351,119 +1513,332 @@ function ManualChecking() {
             }}
           />
           <Typography variant="body2" sx={{ color: isDark ? '#94a3b8' : '#64748b' }}>
-            (max: {questions[selectedQuestionIndex]?.maxMarks || 0})
+            (max: {flatQuestions[selectedQuestionIndex]?.maxMarks || 0})
           </Typography>
         </Box>
 
-        {/* Questions header */}
+        {/* Questions header with Add Question button */}
         <Box
           sx={{
-            p: 2,
+            p: 1.5,
             bgcolor: isDark ? '#334155' : '#f1f5f9',
             borderBottom: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
           }}
         >
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>Questions</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>Out of</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b' }}>Evaluator Score</TableCell>
-                </TableRow>
-              </TableHead>
-            </Table>
-          </TableContainer>
-        </Box>
-
-        {/* Questions list */}
-        <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-          {questions.map((question, index) => (
-            <Box
-              key={question.id}
-              onClick={() => setSelectedQuestionIndex(index)}
+          <Box sx={{ display: 'flex', gap: 2, flex: 1 }}>
+            <Typography sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b', flex: 1, fontSize: '0.8rem' }}>Question</Typography>
+            <Typography sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b', width: 55, textAlign: 'center', fontSize: '0.8rem' }}>Out of</Typography>
+            <Typography sx={{ fontWeight: 700, color: isDark ? '#f1f5f9' : '#1e293b', width: 65, textAlign: 'center', fontSize: '0.8rem' }}>Score</Typography>
+          </Box>
+          <Tooltip title="Add Question">
+            <IconButton
+              onClick={addQuestion}
+              size="small"
               sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                py: 1.5,
-                px: 1,
-                borderBottom: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
-                cursor: 'pointer',
-                bgcolor: selectedQuestionIndex === index 
-                  ? (isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)') 
-                  : 'transparent',
-                borderLeft: selectedQuestionIndex === index 
-                  ? '4px solid #6366f1' 
-                  : '4px solid transparent',
-                transition: 'all 0.2s ease',
-                '&:hover': {
-                  bgcolor: selectedQuestionIndex === index 
-                    ? (isDark ? 'rgba(99, 102, 241, 0.25)' : 'rgba(99, 102, 241, 0.15)')
-                    : (isDark ? '#334155' : '#f8fafc'),
-                },
+                bgcolor: '#22c55e',
+                color: '#fff',
+                ml: 0.5,
+                width: 28,
+                height: 28,
+                '&:hover': { bgcolor: '#16a34a' },
               }}
             >
-              <Chip
-                label={question.label}
-                sx={{
-                  minWidth: 48,
-                  bgcolor: selectedQuestionIndex === index ? '#6366f1' : '#06b6d4',
-                  color: '#fff',
-                  fontWeight: 600,
-                  transition: 'all 0.2s ease',
-                }}
-              />
-              <Typography
-                sx={{
-                  flex: 1,
-                  textAlign: 'center',
-                  color: isDark ? '#94a3b8' : '#64748b',
-                }}
-              >
-                {question.maxMarks}
-              </Typography>
-              <TextField
-                type="number"
-                size="small"
-                value={question.awardedMarks ?? ''}
-                onChange={(e) => {
-                  handleMarksChange(question.id, e.target.value);
-                  // Auto-advance to next question after manual input
-                  if (e.target.value !== '' && index < questions.length - 1) {
-                    setTimeout(() => setSelectedQuestionIndex(index + 1), 300);
-                  }
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedQuestionIndex(index);
-                }}
-                inputProps={{
-                  min: 0,
-                  max: question.maxMarks,
-                  style: { textAlign: 'center', fontWeight: 600 },
-                }}
-                sx={{
-                  width: 70,
-                  '& .MuiOutlinedInput-root': {
-                    bgcolor: question.awardedMarks !== null 
-                      ? alpha('#22c55e', 0.1) 
-                      : selectedQuestionIndex === index 
-                        ? (isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)')
-                        : (isDark ? '#334155' : '#fff'),
-                    '& fieldset': {
-                      borderColor: question.awardedMarks !== null 
-                        ? '#22c55e' 
-                        : selectedQuestionIndex === index 
-                          ? '#6366f1'
-                          : (isDark ? '#475569' : '#e2e8f0'),
-                      borderWidth: selectedQuestionIndex === index ? 2 : 1,
+              <AddIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* Questions list with sub-question support */}
+        <Box sx={{ flex: 1, overflow: 'auto', p: 0.5 }}>
+          {questions.map((question, qIndex) => {
+            const hasSubs = question.subQuestions && question.subQuestions.length > 0;
+            const isExpanded = expandedQuestions[question.id];
+            // Compute flat index for this question
+            let flatIndex = 0;
+            for (let i = 0; i < qIndex; i++) {
+              const q = questions[i];
+              flatIndex += (q.subQuestions && q.subQuestions.length > 0) ? q.subQuestions.length : 1;
+            }
+
+            return (
+              <Box key={question.id} sx={{ mb: 0.5 }}>
+                {/* Parent question row */}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    py: 1,
+                    px: 0.5,
+                    borderBottom: `1px solid ${isDark ? '#475569' : '#e2e8f0'}`,
+                    bgcolor: !hasSubs && selectedQuestionIndex === flatIndex
+                      ? (isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)')
+                      : 'transparent',
+                    borderLeft: !hasSubs && selectedQuestionIndex === flatIndex
+                      ? '3px solid #6366f1'
+                      : '3px solid transparent',
+                    transition: 'all 0.2s ease',
+                    cursor: !hasSubs ? 'pointer' : 'default',
+                    '&:hover': {
+                      bgcolor: isDark ? '#334155' : '#f8fafc',
                     },
-                  },
-                }}
-              />
-            </Box>
-          ))}
+                  }}
+                  onClick={() => {
+                    if (!hasSubs) setSelectedQuestionIndex(flatIndex);
+                  }}
+                >
+                  {/* Expand/collapse toggle for questions with sub-questions */}
+                  {hasSubs ? (
+                    <IconButton
+                      size="small"
+                      onClick={(e) => { e.stopPropagation(); toggleExpandQuestion(question.id); }}
+                      sx={{ p: 0.25, color: isDark ? '#94a3b8' : '#64748b' }}
+                    >
+                      {isExpanded ? <ExpandLessIcon sx={{ fontSize: 18 }} /> : <ExpandMoreIcon sx={{ fontSize: 18 }} />}
+                    </IconButton>
+                  ) : (
+                    <Box sx={{ width: 26 }} />
+                  )}
+
+                  {/* Editable label */}
+                  <TextField
+                    value={question.label}
+                    onChange={(e) => updateQuestionLabel(question.id, e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    size="small"
+                    variant="standard"
+                    inputProps={{
+                      style: {
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        color: isDark ? '#e2e8f0' : '#1e293b',
+                        textAlign: 'center',
+                        padding: '2px 4px',
+                      },
+                    }}
+                    sx={{
+                      width: 50,
+                      '& .MuiInput-underline:before': { borderBottom: 'none' },
+                      '& .MuiInput-underline:hover:before': { borderBottom: `1px solid ${isDark ? '#6366f1' : '#6366f1'}` },
+                      '& .MuiInput-underline:after': { borderBottom: `2px solid #6366f1` },
+                    }}
+                  />
+
+                  {/* Max marks (editable only if no sub-questions) */}
+                  {hasSubs ? (
+                    <Typography sx={{ width: 55, textAlign: 'center', color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.85rem' }}>
+                      {question.maxMarks}
+                    </Typography>
+                  ) : (
+                    <TextField
+                      type="number"
+                      value={question.maxMarks}
+                      onChange={(e) => updateQuestionMaxMarks(question.id, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      size="small"
+                      inputProps={{ min: 0, style: { textAlign: 'center', fontWeight: 600, fontSize: '0.85rem', padding: '4px' } }}
+                      sx={{
+                        width: 55,
+                        '& .MuiOutlinedInput-root': {
+                          bgcolor: isDark ? '#1e293b' : '#f8fafc',
+                          '& fieldset': { borderColor: isDark ? '#475569' : '#e2e8f0' },
+                        },
+                      }}
+                    />
+                  )}
+
+                  {/* Marks input (only if no sub-questions) */}
+                  {hasSubs ? (
+                    <Typography sx={{ width: 65, textAlign: 'center', fontWeight: 600, color: question.awardedMarks !== null ? '#22c55e' : (isDark ? '#64748b' : '#94a3b8'), fontSize: '0.85rem' }}>
+                      {question.awardedMarks !== null ? question.awardedMarks : '-'}
+                    </Typography>
+                  ) : (
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={question.awardedMarks ?? ''}
+                      onChange={(e) => {
+                        handleMarksChange(question.id, e.target.value);
+                        if (e.target.value !== '' && flatIndex < flatQuestions.length - 1) {
+                          setTimeout(() => setSelectedQuestionIndex(flatIndex + 1), 300);
+                        }
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedQuestionIndex(flatIndex);
+                      }}
+                      inputProps={{ min: 0, max: question.maxMarks, style: { textAlign: 'center', fontWeight: 600, fontSize: '0.85rem', padding: '4px' } }}
+                      sx={{
+                        width: 65,
+                        '& .MuiOutlinedInput-root': {
+                          bgcolor: question.awardedMarks !== null
+                            ? alpha('#22c55e', 0.1)
+                            : selectedQuestionIndex === flatIndex
+                              ? (isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)')
+                              : (isDark ? '#334155' : '#fff'),
+                          '& fieldset': {
+                            borderColor: question.awardedMarks !== null
+                              ? '#22c55e'
+                              : selectedQuestionIndex === flatIndex ? '#6366f1' : (isDark ? '#475569' : '#e2e8f0'),
+                            borderWidth: selectedQuestionIndex === flatIndex ? 2 : 1,
+                          },
+                        },
+                      }}
+                    />
+                  )}
+
+                  {/* Add sub-question button */}
+                  <Tooltip title="Add Sub-Question">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => { e.stopPropagation(); addSubQuestion(question.id); }}
+                      sx={{ p: 0.25, color: '#6366f1', '&:hover': { bgcolor: 'rgba(99,102,241,0.1)' } }}
+                    >
+                      <AddIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+
+                  {/* Delete question button */}
+                  <Tooltip title="Remove Question">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => { e.stopPropagation(); removeQuestion(question.id); }}
+                      disabled={questions.length <= 1}
+                      sx={{ p: 0.25, color: '#ef4444', '&:hover': { bgcolor: 'rgba(239,68,68,0.1)' } }}
+                    >
+                      <DeleteIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+
+                {/* Sub-questions (expandable) */}
+                {hasSubs && isExpanded && (
+                  <Box sx={{ pl: 3, borderLeft: `2px solid ${isDark ? '#475569' : '#e2e8f0'}`, ml: 2 }}>
+                    {question.subQuestions.map((sub, subIdx) => {
+                      const subFlatIndex = flatIndex + subIdx;
+                      return (
+                        <Box
+                          key={sub.id}
+                          onClick={() => setSelectedQuestionIndex(subFlatIndex)}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            py: 0.75,
+                            px: 0.5,
+                            cursor: 'pointer',
+                            bgcolor: selectedQuestionIndex === subFlatIndex
+                              ? (isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)')
+                              : 'transparent',
+                            borderLeft: selectedQuestionIndex === subFlatIndex
+                              ? '3px solid #6366f1'
+                              : '3px solid transparent',
+                            borderBottom: `1px solid ${isDark ? '#334155' : '#f1f5f9'}`,
+                            transition: 'all 0.2s ease',
+                            '&:hover': {
+                              bgcolor: isDark ? '#334155' : '#f8fafc',
+                            },
+                          }}
+                        >
+                          {/* Sub-question icon */}
+                          <SubQuestionIcon sx={{ fontSize: 14, color: isDark ? '#64748b' : '#94a3b8' }} />
+
+                          {/* Editable sub label */}
+                          <TextField
+                            value={sub.label}
+                            onChange={(e) => updateSubQuestionLabel(question.id, sub.id, e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            variant="standard"
+                            inputProps={{
+                              style: {
+                                fontWeight: 600,
+                                fontSize: '0.8rem',
+                                color: isDark ? '#cbd5e1' : '#475569',
+                                textAlign: 'center',
+                                padding: '2px 4px',
+                              },
+                            }}
+                            sx={{
+                              width: 45,
+                              '& .MuiInput-underline:before': { borderBottom: 'none' },
+                              '& .MuiInput-underline:hover:before': { borderBottom: '1px solid #6366f1' },
+                              '& .MuiInput-underline:after': { borderBottom: '2px solid #6366f1' },
+                            }}
+                          />
+
+                          {/* Sub max marks */}
+                          <TextField
+                            type="number"
+                            value={sub.maxMarks}
+                            onChange={(e) => updateSubQuestionMaxMarks(question.id, sub.id, e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            inputProps={{ min: 0, style: { textAlign: 'center', fontWeight: 600, fontSize: '0.8rem', padding: '3px' } }}
+                            sx={{
+                              width: 50,
+                              '& .MuiOutlinedInput-root': {
+                                bgcolor: isDark ? '#1e293b' : '#f8fafc',
+                                '& fieldset': { borderColor: isDark ? '#475569' : '#e2e8f0' },
+                              },
+                            }}
+                          />
+
+                          {/* Sub marks input */}
+                          <TextField
+                            type="number"
+                            size="small"
+                            value={sub.awardedMarks ?? ''}
+                            onChange={(e) => {
+                              handleMarksChange(sub.id, e.target.value, question.id);
+                              if (e.target.value !== '' && subFlatIndex < flatQuestions.length - 1) {
+                                setTimeout(() => setSelectedQuestionIndex(subFlatIndex + 1), 300);
+                              }
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedQuestionIndex(subFlatIndex);
+                            }}
+                            inputProps={{ min: 0, max: sub.maxMarks, style: { textAlign: 'center', fontWeight: 600, fontSize: '0.8rem', padding: '3px' } }}
+                            sx={{
+                              width: 60,
+                              '& .MuiOutlinedInput-root': {
+                                bgcolor: sub.awardedMarks !== null
+                                  ? alpha('#22c55e', 0.1)
+                                  : selectedQuestionIndex === subFlatIndex
+                                    ? (isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)')
+                                    : (isDark ? '#334155' : '#fff'),
+                                '& fieldset': {
+                                  borderColor: sub.awardedMarks !== null
+                                    ? '#22c55e'
+                                    : selectedQuestionIndex === subFlatIndex ? '#6366f1' : (isDark ? '#475569' : '#e2e8f0'),
+                                  borderWidth: selectedQuestionIndex === subFlatIndex ? 2 : 1,
+                                },
+                              },
+                            }}
+                          />
+
+                          {/* Delete sub */}
+                          <Tooltip title="Remove">
+                            <IconButton
+                              size="small"
+                              onClick={(e) => { e.stopPropagation(); removeSubQuestion(question.id, sub.id); }}
+                              sx={{ p: 0.25, color: '#ef4444', '&:hover': { bgcolor: 'rgba(239,68,68,0.1)' } }}
+                            >
+                              <CloseIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                )}
+              </Box>
+            );
+          })}
         </Box>
 
         {/* Total score */}

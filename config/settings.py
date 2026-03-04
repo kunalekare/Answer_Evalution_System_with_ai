@@ -51,12 +51,26 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: list = [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".jfif", ".webp", ".gif"]
     
     # ========== OCR Settings ==========
-    OCR_ENGINE: str = "ensemble"  # Ensemble: PaddleOCR + EasyOCR + Tesseract (90%+ accuracy)
+    OCR_ENGINE: str = "easyocr"  # Default: easyocr (lightweight). Use "ensemble" locally for 90%+ accuracy
     # Options: "ensemble", "easyocr", "tesseract", "paddleocr", "sarvam"
     OCR_LANGUAGES: list = ["en"]  # Languages for OCR
     TESSERACT_PATH: Optional[str] = None  # Path to tesseract executable (auto-detect if None)
     LOW_MEMORY_MODE: bool = False  # Disable for better OCR accuracy
     FAST_OCR_MODE: bool = True  # Use engine-specific preprocessing (fewer variants, faster)
+    ENABLE_LANGUAGE_CORRECTION: bool = True
+    ENABLE_LAYOUT_ANALYSIS: bool = True  # Multi-layer language correction (pattern + spell + grammar)
+    ENABLE_CONCEPT_GRAPH: bool = True  # Concept graph matching for per-concept evaluation
+    ENABLE_SENTENCE_ALIGNMENT: bool = True  # Sentence alignment matrix weighting
+    ENABLE_STRUCTURAL_ANALYSIS: bool = True  # Logical structure evaluation (intro/body/conclusion/definitions/examples)
+    STRUCTURAL_BONUS_CAP: float = 0.08  # Max bonus added to final score for good structure
+    ENABLE_ANTI_GAMING: bool = True  # Anti-gaming protection (repetition, irrelevance, keyword stuffing, gibberish)
+    ANTI_GAMING_MAX_PENALTY: float = 0.40  # Max penalty subtracted for gaming detection
+    ENABLE_RUBRIC_SCORING: bool = True  # Professional rubric-based evaluation (board-exam style multi-dimension scoring)
+    ENABLE_BLOOM_TAXONOMY: bool = True  # Bloom's Taxonomy cognitive-level evaluation
+    BLOOM_MAX_PENALTY: float = 0.15  # Max penalty when student answer is below expected cognitive level
+    BLOOM_MAX_BONUS: float = 0.05  # Max bonus when student exceeds expected cognitive level
+    ENABLE_CONFIDENCE_INDEX: bool = True  # Confidence & Reliability Index for every evaluation
+    CONFIDENCE_REVIEW_THRESHOLD: float = 0.70  # Flag for manual review if confidence < this
     
     # ========== Sarvam AI OCR Settings ==========
     SARVAM_API_KEY: str = "sk_dejvv3m8_y0cDisH2QsCaSUW6zvA7oYNd"  # Sarvam AI API key
@@ -70,6 +84,10 @@ class Settings(BaseSettings):
     GOOGLE_CLOUD_API_KEY: Optional[str] = None  # Set for best handwriting OCR
     # Get key from https://console.cloud.google.com/apis/credentials
     
+    # ========== LLM API Keys (Optional — for Layer 4 Language Correction) ==========
+    GEMINI_API_KEY: Optional[str] = None  # Google Gemini for OCR text correction
+    OPENAI_API_KEY: Optional[str] = None  # OpenAI GPT for OCR text correction
+    
     # ========== NLP Settings ==========
     SPACY_MODEL: str = "en_core_web_sm"
     SENTENCE_TRANSFORMER_MODEL: str = "all-MiniLM-L6-v2"
@@ -80,9 +98,11 @@ class Settings(BaseSettings):
     SEMANTIC_AVERAGE_THRESHOLD: float = 0.50
     
     # ========== Scoring Weights ==========
-    WEIGHT_SEMANTIC: float = 0.6
-    WEIGHT_KEYWORD: float = 0.2
-    WEIGHT_DIAGRAM: float = 0.2
+    WEIGHT_SEMANTIC: float = 0.20
+    WEIGHT_CONCEPT_GRAPH: float = 0.25
+    WEIGHT_SENTENCE_ALIGNMENT: float = 0.25
+    WEIGHT_KEYWORD: float = 0.15
+    WEIGHT_DIAGRAM: float = 0.15
     
     # ========== Length Penalty Settings ==========
     LENGTH_PENALTY_THRESHOLD: float = 0.5  # Penalty if answer < 50% of expected length

@@ -94,6 +94,20 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, []);
 
+  // Listen for auth-expired events from API interceptor
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setUser(null);
+      setToken(null);
+      setRefreshToken(null);
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('assessiq_user');
+    };
+    window.addEventListener('auth-expired', handleAuthExpired);
+    return () => window.removeEventListener('auth-expired', handleAuthExpired);
+  }, []);
+
   // Sign in function - tries backend first, falls back to demo mode
   const signIn = async (email, password, role = null) => {
     try {
@@ -135,7 +149,7 @@ export function AuthProvider({ children }) {
       console.log('Backend auth failed, trying demo mode:', error.message);
     }
 
-    // Fallback to demo mode
+    // Fallback to demo mode (only when backend is unreachable)
     const foundUser = DEMO_USERS.find(
       u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
     );
@@ -144,6 +158,7 @@ export function AuthProvider({ children }) {
       const userWithoutPassword = { ...foundUser };
       delete userWithoutPassword.password;
       userWithoutPassword[`${foundUser.role}_id`] = foundUser.id;
+      userWithoutPassword.isDemo = true;
       setUser(userWithoutPassword);
       setToken('demo_token');
       localStorage.setItem('token', 'demo_token');

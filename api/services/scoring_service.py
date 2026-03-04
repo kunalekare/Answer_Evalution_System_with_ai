@@ -48,8 +48,11 @@ class QuestionType(Enum):
 class ScoreResult:
     """Data class for holding scoring results."""
     semantic_score: float
+    concept_graph_score: float
+    sentence_alignment_score: float
     keyword_score: float
     diagram_score: float
+    structural_score: float
     length_penalty: float
     final_score: float
     obtained_marks: float
@@ -83,24 +86,32 @@ class ScoringService:
     # Default scoring weights
     DEFAULT_WEIGHTS = {
         QuestionType.FACTUAL: {
-            'semantic': 0.4,
-            'keyword': 0.5,
-            'diagram': 0.1
+            'semantic': 0.20,
+            'concept_graph': 0.25,
+            'sentence_alignment': 0.20,
+            'keyword': 0.25,
+            'diagram': 0.10
         },
         QuestionType.DESCRIPTIVE: {
-            'semantic': 0.7,
-            'keyword': 0.2,
-            'diagram': 0.1
+            'semantic': 0.20,
+            'concept_graph': 0.30,
+            'sentence_alignment': 0.25,
+            'keyword': 0.10,
+            'diagram': 0.15
         },
         QuestionType.DIAGRAM: {
-            'semantic': 0.3,
-            'keyword': 0.2,
-            'diagram': 0.5
+            'semantic': 0.15,
+            'concept_graph': 0.15,
+            'sentence_alignment': 0.15,
+            'keyword': 0.10,
+            'diagram': 0.45
         },
         QuestionType.MIXED: {
-            'semantic': 0.5,
-            'keyword': 0.25,
-            'diagram': 0.25
+            'semantic': 0.20,
+            'concept_graph': 0.25,
+            'sentence_alignment': 0.25,
+            'keyword': 0.15,
+            'diagram': 0.15
         }
     }
     
@@ -148,7 +159,7 @@ class ScoringService:
         model_set = set(kw.lower().strip() for kw in model_keywords if kw)
         student_set = set(kw.lower().strip() for kw in student_keywords if kw)
         
-        matched = []
+        matched = [] 
         missing = []
         
         for model_kw in model_set:

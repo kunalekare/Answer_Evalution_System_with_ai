@@ -253,6 +253,20 @@ export default function UserManagement() {
     setOpenEditTeacherDialog(true);
   };
 
+  // Clean form data - convert empty strings to null for optional fields
+  const cleanFormData = (form) => {
+    const cleaned = {};
+    for (const [key, value] of Object.entries(form)) {
+      if (value === '' || value === undefined) continue;
+      if (key === 'class_id' && value) {
+        cleaned[key] = parseInt(value, 10);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+    return cleaned;
+  };
+
   // Student handlers
   const handleAddStudent = async () => {
     if (!studentForm.roll_no || !studentForm.name) {
@@ -260,7 +274,7 @@ export default function UserManagement() {
       return;
     }
     try {
-      const response = await createStudent(studentForm);
+      const response = await createStudent(cleanFormData(studentForm));
       if (response.success) {
         toast.success('Student added successfully');
         setOpenAddStudentDialog(false);
@@ -276,7 +290,7 @@ export default function UserManagement() {
   const handleUpdateStudent = async () => {
     if (!selectedStudent) return;
     try {
-      const response = await updateStudent(selectedStudent.student_id, studentForm);
+      const response = await updateStudent(selectedStudent.student_id, cleanFormData(studentForm));
       if (response.success) {
         toast.success('Student updated successfully');
         setOpenEditStudentDialog(false);

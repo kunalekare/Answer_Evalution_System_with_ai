@@ -21,9 +21,9 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available
+    // Add auth token if available (skip demo tokens)
     const token = localStorage.getItem('token');
-    if (token) {
+    if (token && token !== 'demo_token') {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -33,10 +33,89 @@ api.interceptors.request.use(
   }
 );
 
+// Track if we're currently refreshing to avoid loops
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 // Response interceptor
 api.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+
+    // Handle 401 - try token refresh once
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      const currentToken = localStorage.getItem('token');
+
+      // If using demo token or no token, clear session and reject
+      if (!currentToken || currentToken === 'demo_token') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('assessiq_user');
+        window.dispatchEvent(new Event('auth-expired'));
+        return Promise.reject(new Error('Please log in again'));
+      }
+
+      // Try refreshing the token
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
+        }).catch(err => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (refreshToken) {
+        try {
+          const res = await axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, {
+            refresh_token: refreshToken
+          });
+          const newToken = res.data.access_token;
+          localStorage.setItem('token', newToken);
+          if (res.data.refresh_token) {
+            localStorage.setItem('refreshToken', res.data.refresh_token);
+          }
+          processQueue(null, newToken);
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          return api(originalRequest);
+        } catch (refreshError) {
+          processQueue(refreshError, null);
+          // Refresh failed - clear session
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('assessiq_user');
+          window.dispatchEvent(new Event('auth-expired'));
+          return Promise.reject(new Error('Session expired. Please log in again.'));
+        } finally {
+          isRefreshing = false;
+        }
+      } else {
+        // No refresh token - clear session
+        isRefreshing = false;
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('assessiq_user');
+        window.dispatchEvent(new Event('auth-expired'));
+        return Promise.reject(new Error('Session expired. Please log in again.'));
+      }
+    }
+
     console.error('API Error:', error);
     const message = error.response?.data?.detail || error.message || 'An error occurred';
     return Promise.reject(new Error(message));
@@ -110,23 +189,72 @@ export const evaluateText = async ({
   question_type = 'descriptive',
   max_marks = 10,
   custom_keywords = null,
+  rubric_config = null,
 }) => {
   console.log('Evaluating text...', {
     modelLength: model_answer.length,
     studentLength: student_answer.length,
     questionType: question_type,
     maxMarks: max_marks,
+    rubricConfig: rubric_config,
   });
 
-  const response = await api.post('/evaluate/text', {
+  const body = {
     model_answer,
     student_answer,
     question_type,
     max_marks,
     custom_keywords,
-  });
+  };
+  if (rubric_config) {
+    body.rubric_config = rubric_config;
+  }
+
+  const response = await api.post('/evaluate/text', body);
 
   console.log('Text evaluation response:', response);
+  return response;
+};
+
+/**
+ * Evaluate multiple questions independently (per-question breakdown)
+ * Option A: pre-segmented questions array
+ * Option B: raw model+student text (auto-segmented)
+ */
+export const evaluateMultiQuestion = async ({
+  questions = null,
+  model_answer = null,
+  student_answer = null,
+  question_type = 'descriptive',
+  total_max_marks = 10,
+  rubric_config = null,
+}) => {
+  console.log('Evaluating multi-question...', {
+    preSegmented: !!questions,
+    questionCount: questions?.length,
+    questionType: question_type,
+    totalMaxMarks: total_max_marks,
+  });
+
+  const body = { question_type, total_max_marks };
+  if (questions) {
+    body.questions = questions;
+  } else {
+    body.model_answer = model_answer;
+    body.student_answer = student_answer;
+  }
+  if (rubric_config) body.rubric_config = rubric_config;
+
+  const response = await api.post('/evaluate/text/multi', body);
+  console.log('Multi-question evaluation response:', response);
+  return response;
+};
+
+/**
+ * Fetch available rubric presets
+ */
+export const fetchRubricPresets = async () => {
+  const response = await api.get('/evaluate/rubric-presets');
   return response;
 };
 

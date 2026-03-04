@@ -33,6 +33,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Menu,
+  ListItemIcon,
+  ListItemText,
   Card,
   CardContent,
   LinearProgress,
@@ -58,7 +61,13 @@ import {
   Close as CloseIcon,
   Assignment as MarksheetIcon,
   Email as EmailIcon,
+  CheckCircle as CheckedIcon,
+  Cancel as NotCheckedIcon,
+  RateReview as ManualCheckIcon,
+  AutoFixHigh as AIEvaluateIcon,
+  MoreVert as MoreVertIcon,
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { useAuth, ROLES } from '../context/AuthContext';
 import {
@@ -86,6 +95,7 @@ const initialStudentForm = {
 
 export default function StudentManagement() {
   const { user, hasRole } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -109,6 +119,10 @@ export default function StudentManagement() {
   const [marksheetDialogOpen, setMarksheetDialogOpen] = useState(false);
   const [selectedMarksheet, setSelectedMarksheet] = useState(null);
   const [studentMarksheets, setStudentMarksheets] = useState([]);
+
+  // Answer sheet action menu
+  const [answerSheetMenuAnchor, setAnswerSheetMenuAnchor] = useState(null);
+  const [answerSheetMenuStudent, setAnswerSheetMenuStudent] = useState(null);
 
   // Fetch students
   const fetchStudents = useCallback(async () => {
@@ -160,13 +174,30 @@ export default function StudentManagement() {
   };
 
   // Handlers
+  const cleanFormData = (form) => {
+    const cleaned = {};
+    for (const [key, value] of Object.entries(form)) {
+      if (value === '' || value === undefined) {
+        // Skip empty strings - backend expects null/omitted for optional fields
+        continue;
+      }
+      // Convert class_id to integer if present
+      if (key === 'class_id' && value) {
+        cleaned[key] = parseInt(value, 10);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+    return cleaned;
+  };
+
   const handleAddStudent = async () => {
     if (!studentForm.roll_no || !studentForm.name) {
       toast.error('Roll number and name are required');
       return;
     }
     try {
-      const response = await createStudent(studentForm);
+      const response = await createStudent(cleanFormData(studentForm));
       if (response.success) {
         toast.success('Student added successfully');
         setOpenAddDialog(false);
@@ -182,7 +213,7 @@ export default function StudentManagement() {
   const handleUpdateStudent = async () => {
     if (!selectedStudent) return;
     try {
-      const response = await updateStudent(selectedStudent.student_id, studentForm);
+      const response = await updateStudent(selectedStudent.student_id, cleanFormData(studentForm));
       if (response.success) {
         toast.success('Student updated successfully');
         setOpenEditDialog(false);
@@ -221,7 +252,22 @@ export default function StudentManagement() {
     // Get marksheets from localStorage
     const storedMarksheets = JSON.parse(localStorage.getItem('marksheets') || '[]');
     // Filter marksheets for this student
-    const studentSheets = storedMarksheets.filter(m => m.studentInfo?.rollNo === student.roll_no);
+    const studentSheets = storedMarksheets
+      .filter(m => m.studentInfo?.rollNo === student.roll_no)
+      .map(m => ({
+        ...m,
+        // Normalize field names from ManualChecking format to display format
+        timestamp: m.timestamp || m.evaluatedAt || m.createdAt,
+        evaluations: (m.evaluations || m.evaluation || []).map(e => ({
+          questionNumber: e.questionNumber || e.questionNo || e.label || '',
+          maxMarks: parseFloat(e.maxMarks) || 0,
+          score: parseFloat(e.score ?? e.awardedMarks ?? 0),
+        })),
+        totalMarks: parseFloat(m.totalMarks ?? m.totalMaxMarks ?? 0),
+        obtainedMarks: parseFloat(m.obtainedMarks ?? m.totalObtainedMarks ?? 0),
+        percentage: parseFloat(m.percentage) || 0,
+        grade: m.grade || '-',
+      }));
     setStudentMarksheets(studentSheets);
     setSelectedMarksheet(studentSheets.length > 0 ? studentSheets[0] : null);
     setSelectedStudent(student);
@@ -244,6 +290,36 @@ export default function StudentManagement() {
       academic_year: student.academic_year || '',
     });
     setOpenEditDialog(true);
+  };
+
+  // Check if student's answer sheet has been checked (has marksheets or evaluations)
+  const isAnswerSheetChecked = (student) => {
+    const storedMarksheets = JSON.parse(localStorage.getItem('marksheets') || '[]');
+    const hasMarksheet = storedMarksheets.some(m => m.studentInfo?.rollNo === student.roll_no);
+    const hasEvaluation = (student.evaluation_count || 0) > 0;
+    return hasMarksheet || hasEvaluation;
+  };
+
+  // Answer sheet menu handlers
+  const handleOpenAnswerSheetMenu = (event, student) => {
+    event.stopPropagation();
+    setAnswerSheetMenuAnchor(event.currentTarget);
+    setAnswerSheetMenuStudent(student);
+  };
+
+  const handleCloseAnswerSheetMenu = () => {
+    setAnswerSheetMenuAnchor(null);
+    setAnswerSheetMenuStudent(null);
+  };
+
+  const handleManualCheck = (student) => {
+    handleCloseAnswerSheetMenu();
+    navigate('/manual-checking', { state: { student: { roll_no: student.roll_no, name: student.name, student_id: student.student_id } } });
+  };
+
+  const handleAIEvaluate = (student) => {
+    handleCloseAnswerSheetMenu();
+    navigate('/evaluate', { state: { student: { roll_no: student.roll_no, name: student.name, student_id: student.student_id } } });
   };
 
   const getStatusColor = (status) => {
@@ -440,6 +516,7 @@ export default function StudentManagement() {
                 <TableCell sx={{ fontWeight: 700, fontSize: { xs: '0.75rem', md: '0.875rem' }, py: { xs: 1, md: 1.5 }, display: { xs: 'none', md: 'table-cell' } }}>Email</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: { xs: '0.75rem', md: '0.875rem' }, py: { xs: 1, md: 1.5 }, display: { xs: 'none', sm: 'table-cell' } }}>Class</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: { xs: '0.75rem', md: '0.875rem' }, py: { xs: 1, md: 1.5 } }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 700, fontSize: { xs: '0.75rem', md: '0.875rem' }, py: { xs: 1, md: 1.5 } }}>Answer Sheet</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: { xs: '0.75rem', md: '0.875rem' }, py: { xs: 1, md: 1.5 }, display: { xs: 'none', lg: 'table-cell' } }}>Evaluations</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: { xs: '0.75rem', md: '0.875rem' }, py: { xs: 1, md: 1.5 }, display: { xs: 'none', sm: 'table-cell' } }}>Avg Score</TableCell>
                 <TableCell sx={{ fontWeight: 700, fontSize: { xs: '0.75rem', md: '0.875rem' }, py: { xs: 1, md: 1.5 } }} align="center">Actions</TableCell>
@@ -448,7 +525,7 @@ export default function StudentManagement() {
             <TableBody>
               {students.length === 0 && !loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
                       No students found. Click "Add Student" to add one.
                     </Typography>
@@ -483,6 +560,47 @@ export default function StudentManagement() {
                         size="small"
                         sx={{ fontSize: { xs: '0.65rem', md: '0.75rem' }, height: { xs: 20, md: 24 } }}
                       />
+                    </TableCell>
+                    {/* Answer Sheet Status Column */}
+                    <TableCell sx={{ py: { xs: 1, md: 1.5 } }}>
+                      {isAnswerSheetChecked(student) ? (
+                        <Chip
+                          icon={<CheckedIcon sx={{ fontSize: 16 }} />}
+                          label="Checked"
+                          size="small"
+                          sx={{
+                            bgcolor: 'rgba(34, 197, 94, 0.12)',
+                            color: '#16a34a',
+                            fontWeight: 600,
+                            fontSize: { xs: '0.65rem', md: '0.75rem' },
+                            height: { xs: 24, md: 28 },
+                            '& .MuiChip-icon': { color: '#16a34a' },
+                          }}
+                        />
+                      ) : (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Chip
+                            icon={<NotCheckedIcon sx={{ fontSize: 16 }} />}
+                            label="Not Checked"
+                            size="small"
+                            sx={{
+                              bgcolor: 'rgba(239, 68, 68, 0.12)',
+                              color: '#dc2626',
+                              fontWeight: 600,
+                              fontSize: { xs: '0.65rem', md: '0.75rem' },
+                              height: { xs: 24, md: 28 },
+                              '& .MuiChip-icon': { color: '#dc2626' },
+                            }}
+                          />
+                          <IconButton
+                            size="small"
+                            onClick={(e) => handleOpenAnswerSheetMenu(e, student)}
+                            sx={{ p: 0.25 }}
+                          >
+                            <MoreVertIcon sx={{ fontSize: 18 }} />
+                          </IconButton>
+                        </Box>
+                      )}
                     </TableCell>
                     <TableCell sx={{ py: { xs: 1, md: 1.5 }, fontSize: { xs: '0.75rem', md: '0.875rem' }, display: { xs: 'none', lg: 'table-cell' } }}>{student.evaluation_count || 0}</TableCell>
                     <TableCell sx={{ py: { xs: 1, md: 1.5 }, display: { xs: 'none', sm: 'table-cell' } }}>
@@ -562,6 +680,61 @@ export default function StudentManagement() {
           }}
         />
       </Paper>
+
+      {/* Answer Sheet Action Menu */}
+      <Menu
+        anchorEl={answerSheetMenuAnchor}
+        open={Boolean(answerSheetMenuAnchor)}
+        onClose={handleCloseAnswerSheetMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          elevation: 8,
+          sx: {
+            borderRadius: 2,
+            minWidth: 220,
+            mt: 0.5,
+            '& .MuiMenuItem-root': {
+              py: 1.25,
+              px: 2,
+              borderRadius: 1,
+              mx: 0.5,
+              my: 0.25,
+            },
+          },
+        }}
+      >
+        <Box sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            Evaluate: {answerSheetMenuStudent?.name}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Choose evaluation method
+          </Typography>
+        </Box>
+        <MenuItem onClick={() => answerSheetMenuStudent && handleManualCheck(answerSheetMenuStudent)}>
+          <ListItemIcon>
+            <ManualCheckIcon sx={{ color: '#6366f1' }} />
+          </ListItemIcon>
+          <ListItemText
+            primary="Manual Checking"
+            secondary="Check answer sheet manually"
+            primaryTypographyProps={{ fontWeight: 600, fontSize: '0.875rem' }}
+            secondaryTypographyProps={{ fontSize: '0.7rem' }}
+          />
+        </MenuItem>
+        <MenuItem onClick={() => answerSheetMenuStudent && handleAIEvaluate(answerSheetMenuStudent)}>
+          <ListItemIcon>
+            <AIEvaluateIcon sx={{ color: '#f59e0b' }} />
+          </ListItemIcon>
+          <ListItemText
+            primary="AI Evaluation"
+            secondary="Auto-evaluate using AI"
+            primaryTypographyProps={{ fontWeight: 600, fontSize: '0.875rem' }}
+            secondaryTypographyProps={{ fontSize: '0.7rem' }}
+          />
+        </MenuItem>
+      </Menu>
 
       {/* Add Student Dialog */}
       <Dialog open={openAddDialog} onClose={() => setOpenAddDialog(false)} maxWidth="md" fullWidth fullScreen={window.innerWidth < 600}>
@@ -1083,13 +1256,13 @@ export default function StudentManagement() {
                             <TableCell>{evalItem.maxMarks}</TableCell>
                             <TableCell sx={{ 
                               fontWeight: 'bold',
-                              color: (evalItem.score / evalItem.maxMarks) >= 0.7 ? 'success.main' :
-                                     (evalItem.score / evalItem.maxMarks) >= 0.4 ? 'warning.main' : 'error.main'
+                              color: evalItem.maxMarks > 0 && (evalItem.score / evalItem.maxMarks) >= 0.7 ? 'success.main' :
+                                     evalItem.maxMarks > 0 && (evalItem.score / evalItem.maxMarks) >= 0.4 ? 'warning.main' : 'error.main'
                             }}>
                               {evalItem.score}
                             </TableCell>
                             <TableCell>
-                              {((evalItem.score / evalItem.maxMarks) * 100).toFixed(0)}%
+                              {evalItem.maxMarks > 0 ? ((evalItem.score / evalItem.maxMarks) * 100).toFixed(0) : 0}%
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1105,7 +1278,7 @@ export default function StudentManagement() {
                             {selectedMarksheet.obtainedMarks || '-'}
                           </TableCell>
                           <TableCell sx={{ fontWeight: 'bold', color: 'primary.contrastText' }}>
-                            {selectedMarksheet.percentage?.toFixed(1)}%
+                            {(typeof selectedMarksheet.percentage === 'number' ? selectedMarksheet.percentage : parseFloat(selectedMarksheet.percentage) || 0).toFixed(1)}%
                           </TableCell>
                         </TableRow>
                       </TableBody>
@@ -1140,7 +1313,7 @@ export default function StudentManagement() {
               
               // Create professional email body
               const evaluationRows = selectedMarksheet?.evaluations?.map(item => 
-                `   Q${item.questionNumber}:  ${item.score} / ${item.maxMarks}  (${((item.score / item.maxMarks) * 100).toFixed(0)}%)`
+                `   Q${item.questionNumber}:  ${item.score} / ${item.maxMarks}  (${item.maxMarks > 0 ? ((item.score / item.maxMarks) * 100).toFixed(0) : 0}%)`
               ).join('\n') || '';
               
               const body = 
@@ -1171,7 +1344,7 @@ ${evaluationRows}
 RESULT SUMMARY
 ──────────────────────────────────────
    Total Marks:    ${selectedMarksheet?.obtainedMarks} / ${selectedMarksheet?.totalMarks}
-   Percentage:     ${selectedMarksheet?.percentage?.toFixed(1)}%
+   Percentage:     ${(typeof selectedMarksheet?.percentage === 'number' ? selectedMarksheet.percentage : parseFloat(selectedMarksheet?.percentage) || 0).toFixed(1)}%
    Grade:          ${selectedMarksheet?.grade}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
