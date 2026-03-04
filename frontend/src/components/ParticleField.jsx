@@ -49,12 +49,15 @@ export default function ParticleField({
       return {
         x: Math.random() * w,
         y: Math.random() * h,
-        // base velocity – slow drift
-        vx: (Math.random() - 0.5) * 0.3,
-        vy: (Math.random() - 0.5) * 0.3,
-        // original position for gentle homing
-        ox: 0,
-        oy: 0,
+        // base velocity – visible drift
+        vx: (Math.random() - 0.5) * 1.2,
+        vy: (Math.random() - 0.5) * 1.2,
+        // base speed preserved for re-injection after damping
+        baseSpeed: 0.4 + Math.random() * 0.8,
+        // angle of autonomous travel (radians) — slowly rotates
+        angle: Math.random() * Math.PI * 2,
+        // how fast the angle wanders (rad/frame)
+        angleSpeed: (Math.random() - 0.5) * 0.02,
         size,
         color: colors[Math.floor(Math.random() * colors.length)],
         // each particle has its own force multiplier (variety)
@@ -87,10 +90,7 @@ export default function ParticleField({
     if (particles.current.length === 0) {
       const arr = [];
       for (let i = 0; i < particleCount; i++) {
-        const p = createParticle(w, h);
-        p.ox = p.x;
-        p.oy = p.y;
-        arr.push(p);
+        arr.push(createParticle(w, h));
       }
       particles.current = arr;
     }
@@ -162,24 +162,33 @@ export default function ParticleField({
           }
         }
 
-        // ── gentle homing back to original zone ─────────
-        const homeForce = 0.002;
-        p.vx += (p.ox - p.x) * homeForce;
-        p.vy += (p.oy - p.y) * homeForce;
+        // ── autonomous wandering force ──────────────────
+        // Each particle drifts along a slowly-rotating heading
+        p.angle += p.angleSpeed;
+        p.vx += Math.cos(p.angle) * p.baseSpeed * 0.08;
+        p.vy += Math.sin(p.angle) * p.baseSpeed * 0.08;
 
-        // ── damping (friction) ──────────────────────────
-        p.vx *= 0.96;
-        p.vy *= 0.96;
+        // ── damping (friction keeps speed bounded) ──────
+        p.vx *= 0.98;
+        p.vy *= 0.98;
+
+        // ── minimum speed floor so particles never stop ─
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        const minSpeed = p.baseSpeed * 0.35;
+        if (speed < minSpeed && speed > 0.001) {
+          p.vx = (p.vx / speed) * minSpeed;
+          p.vy = (p.vy / speed) * minSpeed;
+        }
 
         // ── integrate ───────────────────────────────────
         p.x += p.vx;
         p.y += p.vy;
 
         // ── wrap around edges ───────────────────────────
-        if (p.x < -20) { p.x = w + 20; p.ox = p.x; }
-        else if (p.x > w + 20) { p.x = -20; p.ox = p.x; }
-        if (p.y < -20) { p.y = h + 20; p.oy = p.y; }
-        else if (p.y > h + 20) { p.y = -20; p.oy = p.y; }
+        if (p.x < -20) p.x = w + 20;
+        else if (p.x > w + 20) p.x = -20;
+        if (p.y < -20) p.y = h + 20;
+        else if (p.y > h + 20) p.y = -20;
 
         // ── pulsing opacity ─────────────────────────────
         const pulse = Math.sin(time * p.pulseSpeed + p.pulsePhase) * 0.15 + 0.85;
