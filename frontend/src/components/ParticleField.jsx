@@ -49,11 +49,11 @@ export default function ParticleField({
       return {
         x: Math.random() * w,
         y: Math.random() * h,
-        // base velocity – visible drift
-        vx: (Math.random() - 0.5) * 1.2,
-        vy: (Math.random() - 0.5) * 1.2,
+        // base velocity – gentle drift
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: (Math.random() - 0.5) * 0.5,
         // base speed preserved for re-injection after damping
-        baseSpeed: 0.4 + Math.random() * 0.8,
+        baseSpeed: 0.2 + Math.random() * 0.4,
         // angle of autonomous travel (radians) — slowly rotates
         angle: Math.random() * Math.PI * 2,
         // how fast the angle wanders (rad/frame)
@@ -165,8 +165,8 @@ export default function ParticleField({
         // ── autonomous wandering force ──────────────────
         // Each particle drifts along a slowly-rotating heading
         p.angle += p.angleSpeed;
-        p.vx += Math.cos(p.angle) * p.baseSpeed * 0.08;
-        p.vy += Math.sin(p.angle) * p.baseSpeed * 0.08;
+        p.vx += Math.cos(p.angle) * p.baseSpeed * 0.04;
+        p.vy += Math.sin(p.angle) * p.baseSpeed * 0.04;
 
         // ── damping (friction keeps speed bounded) ──────
         p.vx *= 0.98;
@@ -174,7 +174,7 @@ export default function ParticleField({
 
         // ── minimum speed floor so particles never stop ─
         const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-        const minSpeed = p.baseSpeed * 0.35;
+        const minSpeed = p.baseSpeed * 0.25;
         if (speed < minSpeed && speed > 0.001) {
           p.vx = (p.vx / speed) * minSpeed;
           p.vy = (p.vy / speed) * minSpeed;
