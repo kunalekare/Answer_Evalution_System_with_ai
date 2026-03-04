@@ -1,4 +1,4 @@
-# AssessIQ - AI-Powered Student Answer Evaluation System : [Preview](https://assessiq-frontend.onrender.com/)
+# AssessIQ - AI-Powered Student Answer Evaluation System :
 
 <div align="center">
   
