@@ -69,6 +69,15 @@ async def lifespan(app: FastAPI):
     create_default_admin()
     logger.info("[OK] Default admin checked/created")
     
+    # Create demo teacher and student accounts (for testing)
+    from api.services.auth_service import create_demo_teacher, create_demo_student
+    try:
+        create_demo_teacher()
+        create_demo_student()
+        logger.info("[OK] Demo accounts checked/created")
+    except Exception as e:
+        logger.warning(f"[WARN] Could not create demo accounts: {e}")
+    
     # NOTE: Models are loaded lazily on first request to reduce startup memory
     # This helps with free-tier hosting (512MB RAM limit)
     logger.info("[INFO] ML models will be loaded on first request (lazy loading)")

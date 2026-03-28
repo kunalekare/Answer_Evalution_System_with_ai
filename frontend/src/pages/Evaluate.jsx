@@ -245,8 +245,22 @@ function Evaluate() {
     if (activeStep === 0) {
       // Validate step 1
       if (useTextInput) {
-        if (!modelAnswerText.trim() || !studentAnswerText.trim()) {
+        const modelTrimmed = modelAnswerText.trim();
+        const studentTrimmed = studentAnswerText.trim();
+        
+        if (!modelTrimmed || !studentTrimmed) {
           toast.error('Please enter both model and student answers');
+          return;
+        }
+        
+        // Backend requires model_answer >= 10 characters
+        if (modelTrimmed.length < 10) {
+          toast.error(`Model answer must be at least 10 characters (currently ${modelTrimmed.length})`);
+          return;
+        }
+        
+        if (studentTrimmed.length < 1) {
+          toast.error('Student answer must not be empty');
           return;
         }
         // For text input, skip to configure step
@@ -410,8 +424,32 @@ function Evaluate() {
     } catch (err) {
       console.error('Evaluation error:', err);
       toast.dismiss('eval');
-      setError(err.response?.data?.detail || err.message || 'Evaluation failed. Please try again.');
-      toast.error('Evaluation failed');
+      toast.dismiss('eval-text');
+      
+      // Extract detailed error message
+      let errorMessage = 'Evaluation failed. Please try again.';
+      
+      if (err.response?.status === 422) {
+        // Validation error - extract field details
+        const detail = err.response?.data?.detail;
+        if (Array.isArray(detail)) {
+          // Pydantic validation errors
+          errorMessage = detail.map(e => 
+            `${e.loc?.join('.')}: ${e.msg}`
+          ).join('\n');
+        } else if (typeof detail === 'string') {
+          errorMessage = detail;
+        } else {
+          errorMessage = 'Invalid input. Please check your answers and try again.';
+        }
+      } else if (err.response?.data?.detail) {
+        errorMessage = err.response.data.detail;
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
+      toast.error(errorMessage, { duration: 5 });
     } finally {
       setLoading(false);
     }

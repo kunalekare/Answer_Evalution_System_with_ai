@@ -63,9 +63,9 @@ const AuthContext = createContext(null);
 
 // Demo/Mock users for testing (used when backend is unavailable)
 const DEMO_USERS = [
-  { id: 1, email: 'admin@papereval.com', password: 'admin123', name: 'Admin User', role: ROLES.ADMIN },
-  { id: 2, email: 'teacher@papereval.com', password: 'teacher123', name: 'Dr. Sarah Johnson', role: ROLES.TEACHER },
-  { id: 3, email: 'student@papereval.com', password: 'student123', name: 'John Student', role: ROLES.STUDENT },
+  { id: 1, email: 'admin@assessiq.com', password: 'admin123', name: 'Admin User', role: ROLES.ADMIN },
+  { id: 2, email: 'teacher@assessiq.com', password: 'teacher123', name: 'Dr. Sarah Johnson', role: ROLES.TEACHER },
+  { id: 3, email: 'student@assessiq.com', password: 'student123', name: 'John Student', role: ROLES.STUDENT },
 ];
 
 export function AuthProvider({ children }) {
@@ -118,6 +118,8 @@ export function AuthProvider({ children }) {
         else role = 'student';
       }
 
+      console.log('Attempting login...',  { email, role });
+
       // Try backend API first
       const response = await axios.post(`${API_BASE_URL}/api/v1/auth/login`, {
         email,
@@ -125,15 +127,19 @@ export function AuthProvider({ children }) {
         role
       });
 
-      if (response.data.access_token) {
+      console.log('Login response:', response.status, response.data);
+
+      if (response.data && response.data.access_token) {
         const user = response.data.user || {};
         const userData = {
-          id: user.id,
+          id: user.id || user.user_unique_id,
           email: user.email || email,
           name: user.name || email.split('@')[0],
           role: user.role || role,
-          [`${user.role || role}_id`]: user.id
+          [`${user.role || role}_id`]: user.id || user.user_unique_id
         };
+        
+        console.log('Login successful! Token:', response.data.access_token?.substring(0, 20) + '...');
         
         setToken(response.data.access_token);
         setRefreshToken(response.data.refresh_token);
@@ -144,9 +150,21 @@ export function AuthProvider({ children }) {
         localStorage.setItem('assessiq_user', JSON.stringify(userData));
         
         return { success: true, user: userData };
+      } else {
+        console.error('No access token in response:', response.data);
+        return { success: false, error: 'No access token in response' };
       }
     } catch (error) {
-      console.log('Backend auth failed, trying demo mode:', error.message);
+      console.error('Backend auth error:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        detail: error.response?.data?.detail,
+        message: error.message
+      });
+      
+      // Extract meaningful error message
+      const errorMessage = error.response?.data?.detail || error.message || 'Login failed';
+      console.log('Backend auth failed, trying demo mode:', errorMessage);
     }
 
     // Fallback to demo mode (only when backend is unreachable)

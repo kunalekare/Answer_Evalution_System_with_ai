@@ -231,6 +231,54 @@ async def logout_all_sessions(
     )
 
 
+# ========== Demo Credentials ==========
+class DemoCredentials(BaseModel):
+    """Demo account credentials for testing."""
+    role: str
+    email: str
+    password: str
+    description: str
+
+
+@router.get("/demo-credentials", response_model=dict)
+async def get_demo_credentials():
+    """
+    Get demo account credentials for testing (development only).
+    
+    Returns demo accounts for:
+    - Admin
+    - Teacher (for student management)
+    - Student
+    """
+    return {
+        "success": True,
+        "message": "Demo credentials for testing",
+        "data": {
+            "accounts": [
+                {
+                    "role": "admin",
+                    "email": "admin@assessiq.com",
+                    "password": "admin123",
+                    "description": "System administrator - Full access"
+                },
+                {
+                    "role": "teacher",
+                    "email": "teacher@assessiq.com",
+                    "password": "teacher123",
+                    "description": "Teacher - Can manage students and classes"
+                },
+                {
+                    "role": "student",
+                    "email": "student@assessiq.com",
+                    "password": "student123",
+                    "description": "Student - Can submit answers and view results"
+                }
+            ],
+            "usage": "Use these credentials in the login endpoint with the corresponding role"
+        }
+    }
+
+
 # ========== Initialize Default Admin ==========
 @router.on_event("startup")
 async def startup_event():

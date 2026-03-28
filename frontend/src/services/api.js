@@ -21,10 +21,16 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available (skip demo tokens)
+    // Add auth token if available (skip demo tokens for debugging)
     const token = localStorage.getItem('token');
     if (token && token !== 'demo_token') {
       config.headers.Authorization = `Bearer ${token}`;
+      // Debug logging for auth issues
+      if (config.url?.includes('teacher') || config.url?.includes('student') || config.url?.includes('classes')) {
+        console.debug(`[API] Setting Authorization header for: ${config.method.toUpperCase()} ${config.url}`);
+      }
+    } else if (config.url?.includes('teacher') || config.url?.includes('student')) {
+      console.warn(`[API] No auth token available for: ${config.method.toUpperCase()} ${config.url}`);
     }
     return config;
   },
@@ -117,8 +123,13 @@ api.interceptors.response.use(
     }
 
     console.error('API Error:', error);
-    const message = error.response?.data?.detail || error.message || 'An error occurred';
-    return Promise.reject(new Error(message));
+    
+    // Create a detailed error object for proper handling
+    const apiError = new Error(error.response?.data?.detail || error.message || 'An error occurred');
+    apiError.response = error.response;
+    apiError.status = error.response?.status;
+    
+    return Promise.reject(apiError);
   }
 );
 
@@ -201,9 +212,17 @@ export const evaluateText = async ({
     rubricConfig: rubric_config,
   });
 
+  // Validate text length
+  if (!model_answer || model_answer.trim().length < 10) {
+    throw new Error(`Model answer must be at least 10 characters (got ${model_answer?.trim().length || 0})`);
+  }
+  if (!student_answer || student_answer.trim().length < 1) {
+    throw new Error('Student answer must not be empty');
+  }
+
   const body = {
-    model_answer,
-    student_answer,
+    model_answer: model_answer.trim(),
+    student_answer: student_answer.trim(),
     question_type,
     max_marks,
     ocr_engine,
@@ -213,15 +232,26 @@ export const evaluateText = async ({
     body.rubric_config = rubric_config;
   }
 
+  console.log('Sending evaluation request:', JSON.stringify(body, null, 2));
+
   // IMPORTANT: Text evaluation can take 120-180s due to model initialization
   // First run: models load (~50s) + evaluation (~60s) = 120-180s total
   // Use 180s timeout to avoid premature cancellation
-  const response = await api.post('/evaluate/text', body, {
-    timeout: 180000  // 180 seconds for text evaluation (model initialization + processing)
-  });
-
-  console.log('Text evaluation response:', response);
-  return response;
+  try {
+    const response = await api.post('/evaluate/text', body, {
+      timeout: 180000  // 180 seconds for text evaluation (model initialization + processing)
+    });
+    console.log('Text evaluation response:', response);
+    return response;
+  } catch (error) {
+    console.error('Text evaluation error:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message
+    });
+    throw error;
+  }
 };
 
 /**
@@ -246,21 +276,47 @@ export const evaluateMultiQuestion = async ({
     ocrEngine: ocr_engine,
   });
 
+  // Validation
+  if (!questions && (!model_answer || !student_answer)) {
+    throw new Error('Either questions array or both model_answer and student_answer are required');
+  }
+  
+  if (!questions) {
+    if (model_answer?.trim().length < 10) {
+      throw new Error(`Model answer must be at least 10 characters (got ${model_answer?.trim().length || 0})`);
+    }
+    if (student_answer?.trim().length < 1) {
+      throw new Error('Student answer must not be empty');
+    }
+  }
+
   const body = { question_type, total_max_marks, ocr_engine };
   if (questions) {
     body.questions = questions;
   } else {
-    body.model_answer = model_answer;
-    body.student_answer = student_answer;
+    body.model_answer = model_answer?.trim();
+    body.student_answer = student_answer?.trim();
   }
   if (rubric_config) body.rubric_config = rubric_config;
 
+  console.log('Sending multi-question request:', JSON.stringify(body, null, 2));
+
   // Multi-question evaluation can take 120-180s per question
-  const response = await api.post('/evaluate/text/multi', body, {
-    timeout: 300000  // 300 seconds (5 minutes) for multiple questions
-  });
-  console.log('Multi-question evaluation response:', response);
-  return response;
+  try {
+    const response = await api.post('/evaluate/text/multi', body, {
+      timeout: 300000  // 300 seconds (5 minutes) for multiple questions
+    });
+    console.log('Multi-question evaluation response:', response);
+    return response;
+  } catch (error) {
+    console.error('Multi-question evaluation error:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message
+    });
+    throw error;
+  }
 };
 
 /**
@@ -344,6 +400,43 @@ export const healthCheck = async () => {
   } catch (error) {
     console.error('Health check failed:', error);
     return { status: 'error', message: error.message };
+  }
+};
+
+/**
+ * Get demo account credentials for testing
+ */
+export const getDemoCredentials = async () => {
+  try {
+    const response = await api.get('/auth/demo-credentials');
+    return response.data;
+  } catch (error) {
+    console.error('Failed to fetch demo credentials:', error);
+    return {
+      success: true,
+      data: {
+        accounts: [
+          {
+            role: 'admin',
+            email: 'admin@assessiq.com',
+            password: 'admin123',
+            description: 'System administrator - Full access'
+          },
+          {
+            role: 'teacher',
+            email: 'teacher@assessiq.com',
+            password: 'teacher123',
+            description: 'Teacher - Can manage students and classes'
+          },
+          {
+            role: 'student',
+            email: 'student@assessiq.com',
+            password: 'student123',
+            description: 'Student - Can submit answers and view results'
+          }
+        ]
+      }
+    };
   }
 };
 

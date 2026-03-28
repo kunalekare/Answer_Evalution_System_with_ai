@@ -756,5 +756,60 @@ def create_default_admin():
         db.close()
 
 
+def create_demo_teacher():
+    """Create a demo teacher if none exists (for testing)."""
+    db = SessionLocal()
+    try:
+        existing = db.query(Teacher).filter(Teacher.email == "teacher@assessiq.com").first()
+        if not existing:
+            teacher = Teacher(
+                email="teacher@assessiq.com",
+                password_hash=hash_password("teacher123"),
+                name="Demo Teacher",
+                phone="+1-555-0100",
+                department="Computer Science",
+                status=UserStatus.ACTIVE
+            )
+            db.add(teacher)
+            db.commit()
+            logger.info("Created demo teacher: teacher@assessiq.com / teacher123")
+            return teacher
+    except Exception as e:
+        logger.error(f"Error creating demo teacher: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def create_demo_student():
+    """Create a demo student if none exists (for testing)."""
+    db = SessionLocal()
+    try:
+        existing = db.query(Student).filter(Student.email == "student@assessiq.com").first()
+        if not existing:
+            # Get or create a demo teacher first
+            teacher = db.query(Teacher).filter(Teacher.email == "teacher@assessiq.com").first()
+            if not teacher:
+                teacher = create_demo_teacher()
+            
+            student = Student(
+                email="student@assessiq.com",
+                password_hash=hash_password("student123"),
+                name="Demo Student",
+                roll_number="STU001",
+                teacher_id=teacher.id if teacher else None,
+                status=UserStatus.ACTIVE
+            )
+            db.add(student)
+            db.commit()
+            logger.info("Created demo student: student@assessiq.com / student123")
+            return student
+    except Exception as e:
+        logger.error(f"Error creating demo student: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 # Create singleton auth service
 auth_service = AuthService()
