@@ -895,6 +895,7 @@ class OCRService:
     def _apply_language_correction(self, text: str, mode: str = "fast") -> str:
         """
         Apply language model correction to OCR output.
+        .
         
         Args:
             text: Raw OCR text (post _postprocess_ocr)

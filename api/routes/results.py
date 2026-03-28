@@ -7,9 +7,49 @@ Provides endpoints for viewing, searching, and exporting results.
 
 import os
 import json
+import numpy as np
 from datetime import datetime
 from typing import Optional, List
 from pathlib import Path
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy types (compatible with NumPy 2.x)."""
+    def default(self, obj):
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.str_):
+            return str(obj)
+        if isinstance(obj, bytes):
+            return obj.decode("utf-8", errors="replace")
+        return super().default(obj)
+
+
+def sanitize_for_json(obj):
+    """Recursively convert numpy/non-serializable types to JSON-safe Python types."""
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(v) for v in obj]
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.str_):
+        return str(obj)
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    return obj
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -50,10 +90,12 @@ evaluation_results_store = {}
 # ========== Helper Functions ==========
 def save_result(evaluation_id: str, result: dict):
     """Save evaluation result to storage."""
-    evaluation_results_store[evaluation_id] = {
+    # Sanitize to ensure all values are JSON-serializable Python types
+    safe_result = sanitize_for_json({
         **result,
         "saved_at": datetime.now().isoformat()
-    }
+    })
+    evaluation_results_store[evaluation_id] = safe_result
     
     # Also save to file for persistence
     results_dir = Path(settings.UPLOAD_DIR) / "results"
@@ -61,7 +103,7 @@ def save_result(evaluation_id: str, result: dict):
     
     result_file = results_dir / f"{evaluation_id}.json"
     with open(result_file, 'w', encoding='utf-8') as f:
-        json.dump(evaluation_results_store[evaluation_id], f, indent=2)
+        json.dump(safe_result, f, indent=2, cls=NumpyEncoder)
 
 
 def load_result(evaluation_id: str) -> Optional[dict]:

@@ -88,6 +88,7 @@ function Evaluate() {
   const [questionType, setQuestionType] = useState('descriptive');
   const [maxMarks, setMaxMarks] = useState(10);
   const [subject, setSubject] = useState('');
+  const [ocrEngine, setOcrEngine] = useState('easyocr');  // OCR engine selection (easyocr, ensemble, tesseract, paddleocr, sarvam)
   const [includeDiagram, setIncludeDiagram] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [rubricPreset, setRubricPreset] = useState('default');
@@ -360,6 +361,7 @@ function Evaluate() {
             student_answer: studentAnswerText,
             question_type: questionType,
             total_max_marks: maxMarks,
+            ocr_engine: ocrEngine,
             rubric_config: buildRubricConfig(),
           });
           // Multi-question returns data differently
@@ -369,28 +371,33 @@ function Evaluate() {
           return;
         }
         // Single text-based evaluation
+        // Show loading toast since this can take 120-180s (2-3 minutes)
+        toast.loading('Running AI evaluation (this may take 2-3 minutes on first run)...', { id: 'eval-text' });
         result = await evaluateText({
           model_answer: modelAnswerText,
           student_answer: studentAnswerText,
           question_type: questionType,
           max_marks: maxMarks,
+          ocr_engine: ocrEngine,
           rubric_config: buildRubricConfig(),
         });
+        toast.dismiss('eval-text');
       } else {
         // Files already uploaded, just trigger evaluation
-        toast.loading('Running AI evaluation...', { id: 'eval' });
+        toast.loading('Running AI evaluation (this may take 2-3 minutes on first run)...', { id: 'eval' });
         
         const evalBody = {
           evaluation_id: evaluationId,
           question_type: questionType,
           max_marks: maxMarks,
+          ocr_engine: ocrEngine,
           include_diagram: includeDiagram,
         };
         const rc = buildRubricConfig();
         if (rc) evalBody.rubric_config = rc;
 
         const evalResponse = await axios.post(`${API_BASE_URL}/api/v1/evaluate/`, evalBody, {
-          timeout: 120000,
+          timeout: 180000,  // 180 seconds for file-based evaluation
         });
         
         result = evalResponse.data;
@@ -542,7 +549,7 @@ function Evaluate() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
           >
-            <Box sx={{ mb: 3 }}>
+            <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
               <FormControlLabel
                 control={
                   <Switch
@@ -553,13 +560,55 @@ function Evaluate() {
                 }
                 label="Use text input instead of file upload"
               />
-              {!useTextInput && (
-                <Alert severity="warning" sx={{ mt: 2 }}>
-                  <strong>Note:</strong> File upload with OCR requires significant server resources. 
-                  If you experience errors, please use <strong>Text Input mode</strong> instead.
-                </Alert>
-              )}
+              
+              {/* OCR Engine Selector - Next to Toggle */}
+              <FormControl sx={{ minWidth: 220 }} size="small">
+                <InputLabel>OCR Engine</InputLabel>
+                <Select
+                  value={ocrEngine}
+                  label="OCR Engine"
+                  onChange={(e) => setOcrEngine(e.target.value)}
+                >
+                  <MenuItem value="easyocr">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>EasyOCR</span>
+                      <Typography variant="caption" color="textSecondary">(Balanced, ~5s)</Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="ensemble">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>Ensemble</span>
+                      <Typography variant="caption" color="textSecondary">(Best 90-95%, ~12s)</Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="sarvam">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>Sarvam AI Cloud</span>
+                      <Typography variant="caption" color="textSecondary">(90-95%)</Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="tesseract">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>Tesseract</span>
+                      <Typography variant="caption" color="textSecondary">(Fast, ~3s)</Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="paddleocr">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>PaddleOCR</span>
+                      <Typography variant="caption" color="textSecondary">(Layouts, ~8s)</Typography>
+                    </Box>
+                  </MenuItem>
+                </Select>
+              </FormControl>
             </Box>
+            
+            {!useTextInput && (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <strong>Note:</strong> File upload with OCR requires significant server resources. 
+                If you experience errors, please use <strong>Text Input mode</strong> instead.
+              </Alert>
+            )}
 
             {useTextInput ? (
               <Grid container spacing={3}>
@@ -801,6 +850,68 @@ function Evaluate() {
                   onChange={(e) => setSubject(e.target.value)}
                   placeholder="e.g., Biology, Physics, Chemistry"
                 />
+              </Grid>
+
+              {/* OCR Engine Selection */}
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>OCR Engine for Text Extraction</InputLabel>
+                  <Select
+                    value={ocrEngine}
+                    label="OCR Engine for Text Extraction"
+                    onChange={(e) => setOcrEngine(e.target.value)}
+                  >
+                    <MenuItem value="easyocr">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        EasyOCR (Balanced, ~5s)
+                      </Box>
+                    </MenuItem>
+                    <MenuItem value="ensemble">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        Ensemble (Best Accuracy, ~12s, 90-95%)
+                      </Box>
+                    </MenuItem>
+                    <MenuItem value="sarvam">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        Sarvam AI Cloud (90-95% Accuracy)
+                      </Box>
+                    </MenuItem>
+                    <MenuItem value="tesseract">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        Tesseract (Fast, ~3s)
+                      </Box>
+                    </MenuItem>
+                    <MenuItem value="paddleocr">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        PaddleOCR (Layouts, ~8s)
+                      </Box>
+                    </MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Paper 
+                  elevation={0} 
+                  sx={{ 
+                    p: 2, 
+                    bgcolor: 'info.50',
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'info.200'
+                  }}
+                >
+                  <Typography variant="caption" display="block" color="info.dark" fontWeight={500}>
+                    💡 OCR Engine Tips:
+                  </Typography>
+                  <Typography variant="caption" display="block" color="info.dark" sx={{ mt: 0.5 }}>
+                    • <strong>EasyOCR</strong>: Good balance of speed and accuracy<br/>
+                    • <strong>Ensemble</strong>: Best accuracy for messy handwriting<br/>
+                    • <strong>Sarvam AI</strong>: Cloud-based, high accuracy (requires API key)<br/>
+                    • <strong>Tesseract</strong>: Fastest option<br/>
+                    • <strong>PaddleOCR</strong>: Best for structured/printed text
+                  </Typography>
+                </Paper>
               </Grid>
 
               {/* Advanced Options */}

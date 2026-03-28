@@ -73,8 +73,10 @@ class Settings(BaseSettings):
     CONFIDENCE_REVIEW_THRESHOLD: float = 0.70  # Flag for manual review if confidence < this
     
     # ========== Sarvam AI OCR Settings ==========
-    SARVAM_API_KEY: str = "sk_dejvv3m8_y0cDisH2QsCaSUW6zvA7oYNd"  # Sarvam AI API key
-    SARVAM_API_URL: str = "https://api.sarvam.ai/parse-image"  # Sarvam AI OCR endpoint
+    SARVAM_API_KEY: Optional[str] = "sk_059fh0vj_KhBryRQHeBzwI1KdG5a7WPY9"  # Sarvam AI Document Intelligence API key
+    # Generate key at: https://console.sarvam.ai/
+    # Set via environment variable: SARVAM_API_KEY or in .env file
+    SARVAM_API_URL: str = "https://api.sarvam.ai/v1/document-intelligence"  # Sarvam Document Intelligence endpoint
     
     # ========== OCR.space Settings (Free, good for handwriting) ==========
     OCRSPACE_API_KEY: str = "K88888888888957"  # Free public key (limited)

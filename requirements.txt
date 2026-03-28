@@ -41,6 +41,10 @@ pytesseract==0.3.10
 # HTTP requests for API calls
 requests>=2.28.0
 
+# ========== Cloud OCR APIs ==========
+sarvam-ai>=1.0.0  # Sarvam AI Document Intelligence API
+PyMuPDF>=1.23.0   # PDF handling (fitz)
+
 # ========== NLP Processing ==========
 spacy==3.7.4
 # SpaCy English model - install directly via pip

@@ -189,6 +189,7 @@ export const evaluateText = async ({
   question_type = 'descriptive',
   max_marks = 10,
   custom_keywords = null,
+  ocr_engine = 'easyocr',
   rubric_config = null,
 }) => {
   console.log('Evaluating text...', {
@@ -196,6 +197,7 @@ export const evaluateText = async ({
     studentLength: student_answer.length,
     questionType: question_type,
     maxMarks: max_marks,
+    ocrEngine: ocr_engine,
     rubricConfig: rubric_config,
   });
 
@@ -204,13 +206,19 @@ export const evaluateText = async ({
     student_answer,
     question_type,
     max_marks,
+    ocr_engine,
     custom_keywords,
   };
   if (rubric_config) {
     body.rubric_config = rubric_config;
   }
 
-  const response = await api.post('/evaluate/text', body);
+  // IMPORTANT: Text evaluation can take 120-180s due to model initialization
+  // First run: models load (~50s) + evaluation (~60s) = 120-180s total
+  // Use 180s timeout to avoid premature cancellation
+  const response = await api.post('/evaluate/text', body, {
+    timeout: 180000  // 180 seconds for text evaluation (model initialization + processing)
+  });
 
   console.log('Text evaluation response:', response);
   return response;
@@ -227,6 +235,7 @@ export const evaluateMultiQuestion = async ({
   student_answer = null,
   question_type = 'descriptive',
   total_max_marks = 10,
+  ocr_engine = 'easyocr',
   rubric_config = null,
 }) => {
   console.log('Evaluating multi-question...', {
@@ -234,9 +243,10 @@ export const evaluateMultiQuestion = async ({
     questionCount: questions?.length,
     questionType: question_type,
     totalMaxMarks: total_max_marks,
+    ocrEngine: ocr_engine,
   });
 
-  const body = { question_type, total_max_marks };
+  const body = { question_type, total_max_marks, ocr_engine };
   if (questions) {
     body.questions = questions;
   } else {
@@ -245,7 +255,10 @@ export const evaluateMultiQuestion = async ({
   }
   if (rubric_config) body.rubric_config = rubric_config;
 
-  const response = await api.post('/evaluate/text/multi', body);
+  // Multi-question evaluation can take 120-180s per question
+  const response = await api.post('/evaluate/text/multi', body, {
+    timeout: 300000  // 300 seconds (5 minutes) for multiple questions
+  });
   console.log('Multi-question evaluation response:', response);
   return response;
 };

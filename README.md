@@ -49,9 +49,15 @@ This project is developed as part of the **6th Semester B.Tech Computer Science 
 
 ### 🔤 Text Extraction (OCR)
 
-- Multi-engine support: EasyOCR, Tesseract, PaddleOCR
+- **Multi-Engine Support**: 
+  - ✅ **EasyOCR** (balanced, ~5s)
+  - ✅ **Ensemble** (90-95% accuracy, ~12s)
+  - ✅ **Tesseract** (fast, ~3s)
+  - ✅ **PaddleOCR** (layouts, ~8s)
+  - ✅ **Sarvam AI Cloud API** (cloud, 90-95% accuracy, NEW!)
 - Image preprocessing: Noise removal, skew correction, thresholding
 - PDF and image file support (PNG, JPG, TIFF, BMP)
+- User-selectable OCR engine via API
 
 ### 📝 NLP Processing
 

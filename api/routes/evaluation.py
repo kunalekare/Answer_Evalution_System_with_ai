@@ -14,8 +14,9 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, BackgroundTasks, File, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from config.settings import settings
 
@@ -30,6 +31,15 @@ class QuestionType(str, Enum):
     DESCRIPTIVE = "descriptive"
     DIAGRAM = "diagram"
     MIXED = "mixed"
+
+
+class OCREngine(str, Enum):
+    """Available OCR engines for text extraction."""
+    ENSEMBLE = "ensemble"           # All 3 local engines in parallel (best accuracy, ~10-15s)
+    EASYOCR = "easyocr"             # EasyOCR only (balanced, ~5s)
+    TESSERACT = "tesseract"         # Tesseract only (fast, ~3s)
+    PADDLEOCR = "paddleocr"         # PaddleOCR only (slower but good for layouts)
+    SARVAM = "sarvam"               # Sarvam AI Cloud API (requires API key)
 
 
 class GradeLevel(str, Enum):
@@ -48,6 +58,15 @@ class EvaluationRequest(BaseModel):
     max_marks: int = Field(default=10, ge=1, le=100)
     include_diagram: bool = Field(default=False)
     custom_keywords: Optional[List[str]] = Field(default=None)
+    ocr_engine: OCREngine = Field(
+        default=OCREngine.EASYOCR,
+        description=(
+            "OCR engine to use for text extraction. "
+            "Options: 'ensemble' (best accuracy, ~10-15s), 'easyocr' (balanced, ~5s), "
+            "'tesseract' (fast, ~3s), 'paddleocr' (good for layouts), 'sarvam' (cloud API). "
+            "Default: 'easyocr' for production, 'ensemble' for best accuracy."
+        )
+    )
     rubric_config: Optional[Dict[str, Any]] = Field(
         default=None,
         description=(
@@ -66,6 +85,10 @@ class TextEvaluationRequest(BaseModel):
     question_type: QuestionType = Field(default=QuestionType.DESCRIPTIVE)
     max_marks: int = Field(default=10, ge=1, le=100)
     custom_keywords: Optional[List[str]] = Field(default=None)
+    ocr_engine: OCREngine = Field(
+        default=OCREngine.EASYOCR,
+        description="OCR engine for reference (not used in direct text evaluation, but kept for consistency)"
+    )
     rubric_config: Optional[Dict[str, Any]] = Field(
         default=None,
         description=(
@@ -92,6 +115,25 @@ class ScoreBreakdown(BaseModel):
     weighted_score: float = Field(..., ge=0, le=1)
 
 
+def _sanitize_numpy(obj):
+    """Recursively convert numpy scalars/arrays to JSON-safe Python native types."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_numpy(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_numpy(v) for v in obj]
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.str_):
+        return str(obj)
+    return obj
+
+
 class ConceptMatch(BaseModel):
     """Matched and missing concepts."""
     matched: List[str]
@@ -105,6 +147,22 @@ class ConceptMatch(BaseModel):
     rubric_details: Optional[Dict[str, Any]] = Field(default=None, description="Rubric-based evaluation report with per-dimension scores")
     bloom_taxonomy_details: Optional[Dict[str, Any]] = Field(default=None, description="Bloom's Taxonomy cognitive-level analysis")
     confidence_details: Optional[Dict[str, Any]] = Field(default=None, description="Confidence & Reliability Index report")
+
+    @model_validator(mode='before')
+    @classmethod
+    def _sanitize_numpy_fields(cls, data):
+        """Convert numpy scalars/arrays to Python-native types in all dict/list fields."""
+        if not isinstance(data, dict):
+            return data
+        _DICT_LIST_FIELDS = (
+            'concept_graph_details', 'sentence_alignment_details',
+            'structural_analysis_details', 'anti_gaming_details',
+            'rubric_details', 'bloom_taxonomy_details', 'confidence_details',
+        )
+        for key in _DICT_LIST_FIELDS:
+            if key in data and data[key] is not None:
+                data[key] = _sanitize_numpy(data[key])
+        return data
 
 
 class EvaluationResult(BaseModel):
@@ -348,11 +406,13 @@ async def evaluate_answer(request: EvaluationRequest):
         from api.services.semantic_service import SemanticAnalyzer
         from api.services.scoring_service import ScoringService
         
-        # Initialize services
-        ocr = OCRService()
+        # Initialize services with user-selected OCR engine
+        ocr = OCRService(engine=request.ocr_engine.value)
         nlp = NLPPreprocessor()
         semantic = SemanticAnalyzer()
         scorer = ScoringService()
+        
+        logger.info(f"Evaluation {request.evaluation_id} using OCR engine: {request.ocr_engine.value}")
         
         # Find files in evaluation directory
         files = os.listdir(eval_dir)
@@ -1838,6 +1898,10 @@ class OCRTestRequest(BaseModel):
     evaluation_id: str = Field(..., description="Evaluation ID with uploaded images")
     test_model_answer: bool = Field(default=True, description="Test the model answer image")
     test_student_answer: bool = Field(default=True, description="Test the student answer image")
+    ocr_engine: OCREngine = Field(
+        default=OCREngine.EASYOCR,
+        description="OCR engine to test (compare with Sarvam if available)"
+    )
 
 
 @router.post("/test-ocr")
@@ -1877,8 +1941,10 @@ async def test_ocr_comparison(request: OCRTestRequest):
             "summary": {}
         }
         
-        # Initialize OCR service
-        ocr = OCRService()
+        # Initialize OCR service with selected engine
+        ocr = OCRService(engine=request.ocr_engine.value)
+        
+        logger.info(f"OCR Test using engine: {request.ocr_engine.value}")
         
         # Test model answer if requested
         if request.test_model_answer and model_files:
@@ -2020,7 +2086,7 @@ async def get_rubric_presets():
         from api.services.rubric_scoring_service import RUBRIC_PRESETS, DEFAULT_RUBRIC
         
         presets = {}
-        for preset_name, dimensions in RUBRIC_PRESETS.items():
+        for preset_name, dimensions_dict in RUBRIC_PRESETS.items():
             presets[preset_name] = {
                 "name": preset_name,
                 "description": {
@@ -2030,22 +2096,22 @@ async def get_rubric_presets():
                     "mixed": "Balanced preset for mixed-type questions.",
                 }.get(preset_name, "Custom rubric preset."),
                 "dimensions": {
-                    d["name"]: {
-                        "display_name": d["display_name"],
-                        "weight": d["weight"],
-                        "weight_pct": round(d["weight"] * 100),
+                    dim_name: {
+                        "display_name": dim_data.get("display_name", dim_name),
+                        "weight": dim_data.get("weight", 0.2),
+                        "weight_pct": round(dim_data.get("weight", 0.2) * 100),
                     }
-                    for d in dimensions
+                    for dim_name, dim_data in dimensions_dict.items()
                 },
             }
         
         default_dims = {
-            d["name"]: {
-                "display_name": d["display_name"],
-                "weight": d["weight"],
-                "weight_pct": round(d["weight"] * 100),
+            dim_name: {
+                "display_name": dim_data.get("display_name", dim_name),
+                "weight": dim_data.get("weight", 0.2),
+                "weight_pct": round(dim_data.get("weight", 0.2) * 100),
             }
-            for d in DEFAULT_RUBRIC
+            for dim_name, dim_data in DEFAULT_RUBRIC.items()
         }
         
         return {

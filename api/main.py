@@ -8,11 +8,13 @@ It handles all API routes, middleware configuration, and application lifecycle.
 """
 
 import os
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 
+import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -81,6 +83,36 @@ async def lifespan(app: FastAPI):
     logger.info("[BYE] Goodbye!")
 
 
+# ========== Custom JSON Response (handles numpy types) ==========
+def _numpy_default(obj: Any) -> Any:
+    """JSON serializer for numpy types not handled by the stdlib encoder."""
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.str_):
+        return str(obj)
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+class NumpyJSONResponse(JSONResponse):
+    """JSONResponse subclass that gracefully serialises numpy scalar/array types."""
+    def render(self, content: Any) -> bytes:
+        return json.dumps(
+            content,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            default=_numpy_default,
+        ).encode("utf-8")
+
+
 # ========== FastAPI Application ==========
 app = FastAPI(
     title=settings.APP_NAME,
@@ -89,7 +121,8 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
+    default_response_class=NumpyJSONResponse,
 )
 
 
@@ -304,10 +337,16 @@ async def api_info():
 if __name__ == "__main__":
     import uvicorn
     
+    # Important: Extended timeouts for long-running evaluations
+    # First run: 60-90s (model loading) + 60-90s (evaluation) = 120-180 seconds
+    # These timeouts must exceed client-side timeouts to prevent premature termination
     uvicorn.run(
         "main:app",
         host=settings.API_HOST,
         port=settings.API_PORT,
         reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
+        log_level=settings.LOG_LEVEL.lower(),
+        timeout_keep_alive=180,  # 180s to allow full evaluation + model loading (first run)
+        timeout_notify=180,  # Shutdown timeout
+        timeout_graceful_shutdown=30,  # Grace period before force termination
     )
