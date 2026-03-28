@@ -1029,6 +1029,56 @@ class OCRService:
         self._engine = "sarvam_api"
         logger.info("Sarvam AI OCR initialised")
 
+    def _extract_sarvam_api_direct(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
+        """Extract text using Sarvam AI Parse API directly (RESTful API)."""
+        try:
+            # Read image file and encode as base64
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            
+            # Prepare the request
+            headers = {
+                'Authorization': f'Bearer {self._sarvam_api_key}',
+                'Accept': 'application/json',
+            }
+            
+            files = {
+                'file': (os.path.basename(image_path), image_data)
+            }
+            
+            data = {
+                'threshold': '0.5',
+                'page_number': '1'
+            }
+            
+            # Make API request
+            logger.info(f"Calling Sarvam API: {self._sarvam_api_url}")
+            response = requests.post(
+                self._sarvam_api_url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                # Extract text from response
+                text = result.get('text', '') or result.get('output', {}).get('text', '')
+                
+                if text:
+                    logger.info(f"Sarvam API extracted {len(text)} characters")
+                    if detail:
+                        return [{'text': text, 'confidence': 1.0, 'engine': 'sarvam_api'}]
+                    return text.strip()
+            else:
+                logger.warning(f"Sarvam API error: {response.status_code} - {response.text}")
+        
+        except Exception as e:
+            logger.warning(f"Sarvam API Direct: {e}")
+        
+        return "" if not detail else []
+
     # ==================== Layout Analysis ====================
 
     def _ensure_layout_analyzer(self):
@@ -1630,8 +1680,15 @@ class OCRService:
     # ==================== Sarvam / Cloud OCR ====================
 
     def _extract_sarvam(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
-        """Cloud OCR: Google Vision → OCR.space → Sarvam PDF → EasyOCR fallback."""
+        """Cloud OCR: Sarvam Direct API → Google Vision → OCR.space → Sarvam PDF → EasyOCR fallback."""
         start = time.time()
+
+        # Try Sarvam API directly first (most reliable for us)
+        result = self._extract_sarvam_api_direct(image_path, detail)
+        if result and len(result) > 50:
+            elapsed = time.time() - start
+            logger.info(f"Sarvam API Direct: {len(result)} chars in {elapsed:.1f}s")
+            return self._postprocess_ocr(result) if not detail else result
 
         result = self._extract_google_vision(image_path, detail)
         if result and len(result) > 50:

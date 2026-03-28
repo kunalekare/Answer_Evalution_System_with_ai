@@ -296,10 +296,11 @@ function Evaluate() {
           setEvaluationId(evalId);
           
           toast.success('Files uploaded!', { id: 'upload' });
-          toast.loading('Extracting text with OCR...', { id: 'extract' });
+          toast.loading(`Extracting text with ${ocrEngine}...`, { id: 'extract' });
           
-          // Step 2: Extract text
+          // Step 2: Extract text with the selected OCR engine
           const extractResponse = await axios.get(`${API_BASE_URL}/api/v1/upload/${evalId}/extract-text`, {
+            params: { ocr_engine: ocrEngine },
             timeout: 180000, // 3 minutes for OCR
           });
           

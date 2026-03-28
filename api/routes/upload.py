@@ -319,9 +319,14 @@ async def delete_evaluation_files(evaluation_id: str):
 
 
 @router.get("/{evaluation_id}/extract-text")
-async def extract_text_from_upload(evaluation_id: str):
+async def extract_text_from_upload(evaluation_id: str, ocr_engine: str = "easyocr"):
     """
-    Extract and return OCR text from uploaded files.
+    Extract and return OCR text from uploaded files using specified OCR engine.
+    
+    Query parameters:
+    - evaluation_id: The evaluation ID
+    - ocr_engine: OCR engine to use (easyocr, ensemble, tesseract, paddleocr, sarvam)
+    
     This allows users to preview what text was extracted before evaluation.
     """
     eval_dir = os.path.join(settings.UPLOAD_DIR, "evaluations", evaluation_id)
@@ -335,8 +340,9 @@ async def extract_text_from_upload(evaluation_id: str):
     try:
         from api.services.ocr_service import OCRService
         
-        # Initialize OCR service
-        ocr = OCRService()
+        # Initialize OCR service with the requested engine
+        logger.info(f"Initializing OCRService with engine: {ocr_engine}")
+        ocr = OCRService(engine=ocr_engine)
         
         # Find files
         files = os.listdir(eval_dir)
@@ -345,6 +351,7 @@ async def extract_text_from_upload(evaluation_id: str):
         
         result = {
             "evaluation_id": evaluation_id,
+            "ocr_engine": ocr_engine,
             "model_answer": None,
             "student_answer": None
         }
@@ -353,6 +360,7 @@ async def extract_text_from_upload(evaluation_id: str):
         if model_file:
             model_path = os.path.join(eval_dir, model_file)
             try:
+                logger.info(f"Extracting model answer with {ocr_engine}")
                 model_text = ocr.extract_text(model_path)
                 result["model_answer"] = {
                     "filename": model_file,
@@ -361,6 +369,7 @@ async def extract_text_from_upload(evaluation_id: str):
                     "word_count": len(model_text.split())
                 }
             except Exception as e:
+                logger.error(f"Model extraction failed: {e}")
                 result["model_answer"] = {
                     "filename": model_file,
                     "error": str(e)
@@ -374,6 +383,7 @@ async def extract_text_from_upload(evaluation_id: str):
                     with open(student_path, 'r', encoding='utf-8') as f:
                         student_text = f.read()
                 else:
+                    logger.info(f"Extracting student answer with {ocr_engine}")
                     student_text = ocr.extract_text(student_path)
                 
                 result["student_answer"] = {
@@ -383,17 +393,20 @@ async def extract_text_from_upload(evaluation_id: str):
                     "word_count": len(student_text.split())
                 }
             except Exception as e:
+                logger.error(f"Student extraction failed: {e}")
                 result["student_answer"] = {
                     "filename": student_file,
                     "error": str(e)
                 }
         
+        logger.info(f"Text extraction completed for evaluation {evaluation_id}")
         return {
             "success": True,
             "data": result
         }
         
     except Exception as e:
+        logger.error(f"Failed to extract text: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to extract text: {str(e)}"
