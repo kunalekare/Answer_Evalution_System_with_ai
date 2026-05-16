@@ -291,15 +291,17 @@ function Evaluate() {
           formData.append('student_answer', studentAnswerFile);
           formData.append('question_type', questionType);
           formData.append('max_marks', maxMarks.toString());
+          formData.append('ocr_engine', ocrEngine);  // ← PASS SELECTED ENGINE
           if (subject) {
             formData.append('subject', subject);
           }
           
-          toast.loading('Uploading files...', { id: 'upload' });
+          toast.loading('Uploading files and extracting text (this may take 3-5 minutes for large files)...', { id: 'upload' });
+          console.log('📤 Uploading with OCR engine:', ocrEngine);
           
           const uploadResponse = await axios.post(`${API_BASE_URL}/api/v1/upload/`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
-            timeout: 60000,
+            timeout: 300000,  // 5 minutes - upload + extraction can take a while
           });
           
           if (!uploadResponse.data.success) {
@@ -309,17 +311,33 @@ function Evaluate() {
           const evalId = uploadResponse.data.data.evaluation_id;
           setEvaluationId(evalId);
           
-          toast.success('Files uploaded!', { id: 'upload' });
-          toast.loading(`Extracting text with ${ocrEngine}...`, { id: 'extract' });
+          console.log('✅ Files uploaded and cached! Now loading preview...');
+          toast.success('Files processed! Loading preview...', { id: 'upload' });
           
-          // Step 2: Extract text with the selected OCR engine
+          // Step 2: Backend has already extracted text during upload, just load from cache
+          console.log('📋 Attempting to load cached extraction for preview...');
+          toast.loading(`Loading preview with ${ocrEngine} extraction...`, { id: 'extract' });
+          
+          // Try to get extraction result (cached from upload phase)
           const extractResponse = await axios.get(`${API_BASE_URL}/api/v1/upload/${evalId}/extract-text`, {
             params: { ocr_engine: ocrEngine },
-            timeout: 180000, // 3 minutes for OCR
+            timeout: 60000, // 1 minute - just loading cache
           });
           
           if (extractResponse.data.success) {
             const data = extractResponse.data.data;
+            
+            // Show info about OCR engine used (using console only, no toast for info)
+            if (data.note) {
+              console.log(`[OCR Info] ${data.note}`);
+            }
+            if (data.ocr_engine_used !== ocrEngine && data.ocr_engine_used !== 'text_input') {
+              const msg = `Using ${data.ocr_engine_used} (Sarvam API unavailable - fallback active)`;
+              console.log(`[OCR Fallback] ${msg}`);
+              toast.success(msg, { id: 'ocr-fallback' });
+            } else if (data.ocr_engine_used === ocrEngine) {
+              console.log(`[OCR] Using requested engine: ${ocrEngine}`);
+            }
             
             if (data.model_answer?.text) {
               setExtractedModelText(data.model_answer.text);
@@ -346,8 +364,32 @@ function Evaluate() {
           console.error('Upload/Extract error:', err);
           toast.dismiss('upload');
           toast.dismiss('extract');
-          toast.error(err.response?.data?.detail || err.message || 'Failed to process files');
-          setError(err.message);
+          
+          let errorMsg = err.response?.data?.detail || err.message || 'Failed to process files';
+          
+          // Handle timeout specifically
+          if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+            errorMsg = 'Processing took too long. Please try with smaller files or use Text Input mode instead.';
+            toast.error(errorMsg, { duration: 5 });
+            setError(errorMsg);
+          } 
+          // Network issues
+          else if (errorMsg.includes('network') || errorMsg.includes('ECONNREFUSED') || errorMsg.includes('connection')) {
+            errorMsg += ' - Please check if backend is running and you have internet connection';
+            toast.error(errorMsg, { duration: 5 });
+            setError(errorMsg);
+          }
+          // File/endpoint errors
+          else if (errorMsg.includes('404') || errorMsg.includes('endpoint')) {
+            errorMsg += ' (Ensure files are correctly uploaded)';
+            toast.error(errorMsg, { duration: 5 });
+            setError(errorMsg);
+          }
+          // Other errors
+          else {
+            toast.error(errorMsg, { duration: 5 });
+            setError(errorMsg);
+          }
         } finally {
           setExtracting(false);
         }
@@ -411,12 +453,23 @@ function Evaluate() {
         const rc = buildRubricConfig();
         if (rc) evalBody.rubric_config = rc;
 
-        const evalResponse = await axios.post(`${API_BASE_URL}/api/v1/evaluate/`, evalBody, {
-          timeout: 180000,  // 180 seconds for file-based evaluation
+        // Use different endpoint based on evaluation mode
+        const endpoint = multiQuestionMode 
+          ? `${API_BASE_URL}/api/v1/evaluate/multi`  // Multi-question endpoint
+          : `${API_BASE_URL}/api/v1/evaluate/`;        // Single-question endpoint
+        
+        const evalResponse = await axios.post(endpoint, evalBody, {
+          timeout: 600000,  // 10 minutes for evaluation (includes processing, scoring, semantic analysis)
         });
         
         result = evalResponse.data;
         toast.dismiss('eval');
+        
+        // Check if this was multi-question evaluation
+        if (multiQuestionMode && result.per_question) {
+          navigate(`/results/${result.evaluation_id}`, { state: { result, isMultiQuestion: true } });
+          return;
+        }
       }
 
       toast.success('Evaluation complete!');
@@ -891,6 +944,90 @@ function Evaluate() {
                 />
               </Grid>
 
+              {/* Question Wise vs Overall Evaluation Selection */}
+              <Grid item xs={12}>
+                <Card sx={{ 
+                  mb: 2, 
+                  border: '2px solid',
+                  borderColor: multiQuestionMode ? 'primary.main' : 'divider',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    borderColor: 'primary.main',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+                  }
+                }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        📋 Evaluation Mode
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Choose how you want your answer to be evaluated:
+                    </Typography>
+                    
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+                      {/* Overall Evaluation */}
+                      <Card 
+                        sx={{ 
+                          p: 2,
+                          cursor: 'pointer', 
+                          transition: 'all 0.2s ease',
+                          border: '2px solid',
+                          borderColor: !multiQuestionMode ? 'primary.main' : 'divider',
+                          bgcolor: !multiQuestionMode ? 'primary.50' : 'background.paper',
+                          '&:hover': { boxShadow: 2 }
+                        }}
+                        onClick={() => setMultiQuestionMode(false)}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                          <Box sx={{ fontSize: '1.5rem' }}>📝</Box>
+                          <Typography variant="body1" fontWeight={600}>
+                            Overall Evaluation
+                          </Typography>
+                          {!multiQuestionMode && <CheckIcon sx={{ color: 'success.main', ml: 'auto' }} />}
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Evaluate the complete answer as a single unit. Best for: Single questions, essays, or when you want an overall score.
+                        </Typography>
+                      </Card>
+
+                      {/* Question Wise Evaluation */}
+                      <Card 
+                        sx={{ 
+                          p: 2,
+                          cursor: 'pointer', 
+                          transition: 'all 0.2s ease',
+                          border: '2px solid',
+                          borderColor: multiQuestionMode ? 'primary.main' : 'divider',
+                          bgcolor: multiQuestionMode ? 'primary.50' : 'background.paper',
+                          '&:hover': { boxShadow: 2 }
+                        }}
+                        onClick={() => setMultiQuestionMode(true)}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                          <Box sx={{ fontSize: '1.5rem' }}>❓</Box>
+                          <Typography variant="body1" fontWeight={600}>
+                            Question Wise Evaluate
+                          </Typography>
+                          {multiQuestionMode && <CheckIcon sx={{ color: 'success.main', ml: 'auto' }} />}
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Evaluate each question separately. Best for: Multiple questions, worksheets where you need per-question scores.
+                        </Typography>
+                      </Card>
+                    </Box>
+
+                    {multiQuestionMode && (
+                      <Alert severity="info" sx={{ mt: 2, fontSize: '0.8rem' }}>
+                        <strong>💡 Quick Tip:</strong> Number each question in the text (e.g., "Q1. ...", "Question 2: ...", "1. ..."). 
+                        The system will automatically detect and evaluate each question separately.
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+
               {/* OCR Engine Selection */}
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
@@ -1071,31 +1208,7 @@ function Evaluate() {
                   </Box>
                     )}
 
-                    <Divider sx={{ my: 2 }} />
 
-                    {/* Per-Question Evaluation */}
-                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
-                      📝 Per-Question Evaluation
-                    </Typography>
-                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 1 }}>
-                      Enable this when the answer sheet contains multiple questions (Q1, Q2, Q3…). 
-                      Each question is evaluated independently with its own score and grade.
-                    </Typography>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={multiQuestionMode}
-                          onChange={(e) => setMultiQuestionMode(e.target.checked)}
-                        />
-                      }
-                      label="Enable Per-Question Grading"
-                    />
-                    {multiQuestionMode && (
-                      <Alert severity="info" sx={{ mt: 1, fontSize: '0.8rem' }}>
-                        <strong>Tip:</strong> Number each answer in both Model and Student text (e.g. "1. …", "Q1. …", "Question 1: …").
-                        The system auto-detects question boundaries and evaluates each independently.
-                      </Alert>
-                    )}
                   </Paper>
                 </Collapse>
               </Grid>

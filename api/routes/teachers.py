@@ -175,6 +175,85 @@ async def teacher_dashboard(
     """
     Get teacher dashboard statistics.
     """
+    # Handle demo mode
+    if current_user.user_unique_id == "demo_teacher_1":
+        return {
+            "success": True,
+            "is_first_visit": False,
+            "data": {
+                "teacher": {
+                    "id": 999,
+                    "teacher_id": "demo_teacher_1",
+                    "email": "teacher@demo.com",
+                    "name": "Demo Teacher",
+                    "phone": "9876543210",
+                    "department": "Computer Science",
+                    "designation": "Assistant Professor",
+                    "employee_id": "EMP001"
+                },
+                "teacher_metrics": {
+                    "evaluations_created": 15,
+                    "average_evaluation_score": 78.5,
+                    "classes_managed": 2,
+                    "students_taught": 35
+                },
+                "statistics": {
+                    "total_students": 35,
+                    "total_classes": 2,
+                    "total_evaluations": 15,
+                    "total_manual_evaluations": 8,
+                    "pending_reviews": 3,
+                    "average_score": 78.5
+                },
+                "recent_evaluations": [
+                    {
+                        "id": 1,
+                        "student_id": "STU001",
+                        "final_score": 85,
+                        "status": "completed",
+                        "created_at": "2026-03-29T10:30:00Z"
+                    },
+                    {
+                        "id": 2,
+                        "student_id": "STU002",
+                        "final_score": 78,
+                        "status": "completed",
+                        "created_at": "2026-03-28T14:15:00Z"
+                    },
+                    {
+                        "id": 3,
+                        "student_id": "STU003",
+                        "final_score": 92,
+                        "status": "pending",
+                        "created_at": "2026-03-27T09:00:00Z"
+                    }
+                ],
+                "recent_students": [
+                    {
+                        "id": 1,
+                        "student_id": "STU001",
+                        "name": "Aaryan Sharma",
+                        "roll_no": "001",
+                        "class_id": 1
+                    },
+                    {
+                        "id": 2,
+                        "student_id": "STU002",
+                        "name": "Bhavna Singh",
+                        "roll_no": "002",
+                        "class_id": 1
+                    },
+                    {
+                        "id": 3,
+                        "student_id": "STU003",
+                        "name": "Chirag Patel",
+                        "roll_no": "003",
+                        "class_id": 1
+                    }
+                ]
+            }
+        }
+    
     teacher = db.query(Teacher).filter(Teacher.id == current_user.user_id).first()
     
     if not teacher:
@@ -250,6 +329,106 @@ async def list_students(
     """
     List all students managed by this teacher.
     """
+    # Handle demo mode - combine hardcoded demo students with any real students created with teacher_id=999
+    if current_user.user_unique_id == "demo_teacher_1":
+        demo_students = [
+            {
+                "id": 1,
+                "student_id": "STU001",
+                "roll_no": "001",
+                "name": "Aaryan Sharma",
+                "email": "aaryan@demo.com",
+                "class_id": 1,
+                "status": "active",
+                "enrollment_no": "2022001"
+            },
+            {
+                "id": 2,
+                "student_id": "STU002",
+                "roll_no": "002",
+                "name": "Bhavna Singh",
+                "email": "bhavna@demo.com",
+                "class_id": 1,
+                "status": "active",
+                "enrollment_no": "2022002"
+            },
+            {
+                "id": 3,
+                "student_id": "STU003",
+                "roll_no": "003",
+                "name": "Chirag Patel",
+                "email": "chirag@demo.com",
+                "class_id": 1,
+                "status": "active",
+                "enrollment_no": "2022003"
+            },
+            {
+                "id": 4,
+                "student_id": "STU004",
+                "roll_no": "004",
+                "name": "Deepika Verma",
+                "email": "deepika@demo.com",
+                "class_id": 2,
+                "status": "active",
+                "enrollment_no": "2022004"
+            },
+            {
+                "id": 5,
+                "student_id": "STU005",
+                "roll_no": "005",
+                "name": "Eshan Kumar",
+                "email": "eshan@demo.com",
+                "class_id": 2,
+                "status": "active",
+                "enrollment_no": "2022005"
+            }
+        ]
+        
+        # Also fetch real students from database created with teacher_id=999 (demo teacher)
+        try:
+            real_students = db.query(Student).filter(Student.teacher_id == 999).all()
+            for student in real_students:
+                # Convert to dict format and add to demo students list
+                demo_students.append({
+                    "id": student.id,
+                    "student_id": student.student_id,
+                    "roll_no": student.roll_no,
+                    "name": student.name,
+                    "email": student.email,
+                    "class_id": student.class_id,
+                    "status": student.status.value if hasattr(student.status, 'value') else student.status,
+                    "enrollment_no": student.enrollment_no
+                })
+        except Exception as e:
+            logger.error(f"Error fetching real students for demo user: {e}")
+        
+        # Filter by class_id if provided
+        if class_id:
+            demo_students = [s for s in demo_students if s["class_id"] == class_id]
+        
+        # Filter by search if provided
+        if search:
+            search_lower = search.lower()
+            demo_students = [s for s in demo_students if search_lower in s["name"].lower() or search_lower in s["roll_no"]]
+        
+        # Apply pagination
+        total = len(demo_students)
+        offset = (page - 1) * limit
+        students_page = demo_students[offset:offset + limit]
+        
+        return {
+            "success": True,
+            "data": {
+                "students": students_page,
+                "pagination": {
+                    "page": page,
+                    "limit": limit,
+                    "total": total,
+                    "pages": (total + limit - 1) // limit
+                }
+            }
+        }
+    
     query = db.query(Student).filter(Student.teacher_id == current_user.user_id)
     
     if class_id:
@@ -292,6 +471,76 @@ async def create_student(
     """
     Create a new student.
     """
+    # Handle demo mode - demo users can't actually save to database due to foreign key constraints
+    # Instead, we'll create a valid Student object but with special handling
+    if current_user.user_id == 999:
+        # For demo mode, we need to save the student to the database
+        # But we need to handle the foreign key issue
+        # Solution: Use a special approach for demo users - create the student without the foreign key constraint
+        try:
+            # Check email uniqueness even for demo mode
+            if student_data.email:
+                existing = db.query(Student).filter(Student.email == student_data.email).first()
+                if existing:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Email already registered"
+                    )
+            
+            # Parse date of birth if provided
+            dob = None
+            if student_data.date_of_birth:
+                try:
+                    dob = datetime.fromisoformat(student_data.date_of_birth)
+                except:
+                    pass
+            
+            # Create student with teacher_id=999 (demo teacher)
+            # The database should allow this; if not, we'll handle the error
+            student = Student(
+                roll_no=student_data.roll_no,
+                name=student_data.name,
+                email=student_data.email,
+                password_hash=hash_password(student_data.password) if student_data.password else None,
+                phone=student_data.phone,
+                enrollment_no=student_data.enrollment_no,
+                gender=student_data.gender,
+                date_of_birth=dob,
+                address=student_data.address,
+                class_id=student_data.class_id,
+                teacher_id=999,  # Demo teacher ID
+                academic_year=student_data.academic_year
+            )
+            
+            db.add(student)
+            db.commit()
+            db.refresh(student)
+            
+            logger.info(f"Demo student created: {student.student_id}")
+            
+            return {
+                "success": True,
+                "message": "Student added successfully (Demo Mode)",
+                "data": {
+                    "id": student.id,
+                    "student_id": student.student_id,
+                    "roll_no": student.roll_no,
+                    "name": student.name,
+                    "email": student.email,
+                    "class_id": student.class_id,
+                    "status": "active",
+                    "enrollment_no": student.enrollment_no
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error creating demo student: {e}")
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to create student: {str(e)}"
+            )
+    
+    # Regular user - proceed with normal database save
     # Check if email exists (if provided)
     if student_data.email:
         existing = db.query(Student).filter(Student.email == student_data.email).first()
@@ -625,6 +874,34 @@ async def list_classes(
     """
     List all classes managed by this teacher.
     """
+    # Handle demo mode
+    if current_user.user_unique_id == "demo_teacher_1":
+        return {
+            "success": True,
+            "data": {
+                "classes": [
+                    {
+                        "id": 1,
+                        "name": "Class 10-A",
+                        "section": "A",
+                        "grade": "10",
+                        "academic_year": "2025-2026",
+                        "is_active": True,
+                        "student_count": 35
+                    },
+                    {
+                        "id": 2,
+                        "name": "Class 10-B",
+                        "section": "B",
+                        "grade": "10",
+                        "academic_year": "2025-2026",
+                        "is_active": True,
+                        "student_count": 32
+                    }
+                ]
+            }
+        }
+    
     query = db.query(Class).filter(Class.teacher_id == current_user.user_id)
     
     if active_only:

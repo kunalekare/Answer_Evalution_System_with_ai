@@ -158,10 +158,13 @@ class Admin(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     admin_id = Column(String(50), unique=True, index=True, default=lambda: f"ADM{uuid.uuid4().hex[:8].upper()}")
     email = Column(String(255), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=True)  # Optional, null for OAuth-only users
     name = Column(String(200), nullable=False)
     phone = Column(String(20), nullable=True)
     profile_image = Column(String(500), nullable=True)
+    # OAuth support
+    oauth_provider = Column(String(50), nullable=True)  # 'google' or 'github'
+    oauth_id = Column(String(255), nullable=True, unique=True, index=True)  # OAuth provider's user ID
     status = Column(Enum(UserStatus), default=UserStatus.ACTIVE)
     is_super_admin = Column(Boolean, default=False)
     last_login = Column(DateTime, nullable=True)
@@ -201,8 +204,11 @@ class Teacher(Base):
     teacher_id = Column(String(50), unique=True, index=True, default=lambda: f"TCH{uuid.uuid4().hex[:8].upper()}")
     employee_id = Column(String(50), unique=True, nullable=True)  # Official employee ID
     email = Column(String(255), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=True)  # Optional, null for OAuth-only users
     name = Column(String(200), nullable=False)
+    # OAuth support
+    oauth_provider = Column(String(50), nullable=True)  # 'google' or 'github'
+    oauth_id = Column(String(255), nullable=True, unique=True, index=True)  # OAuth provider's user ID
     phone = Column(String(20), nullable=True)
     department = Column(String(100), nullable=True)
     designation = Column(String(100), nullable=True)
@@ -257,6 +263,9 @@ class Student(Base):
     email = Column(String(255), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=True)  # Optional - for student login
     name = Column(String(200), nullable=False)
+    # OAuth support
+    oauth_provider = Column(String(50), nullable=True)  # 'google' or 'github'
+    oauth_id = Column(String(255), nullable=True, unique=True, index=True)  # OAuth provider's user ID
     phone = Column(String(20), nullable=True)
     date_of_birth = Column(DateTime, nullable=True)
     gender = Column(String(20), nullable=True)
@@ -1147,6 +1156,239 @@ class GrievanceResponse(Base):
         }
 
 
+# ========== Dashboard Models ==========
+class Dashboard(Base):
+    """
+    Dashboard Model
+    ----------------
+    User dashboard that initializes with all zero values on first login.
+    Updates happen based on user actions (evaluations, uploads, etc.).
+    Tracks different metrics based on user role (admin/teacher/student).
+    """
+    __tablename__ = "dashboards"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    dashboard_id = Column(String(50), unique=True, index=True, default=lambda: str(uuid.uuid4()))
+    
+    # User Reference
+    admin_id = Column(Integer, ForeignKey("admins.id"), nullable=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=True)
+    user_role = Column(Enum(UserRole), nullable=False)
+    
+    # ===== Initialization =====
+    initialized_at = Column(DateTime, default=datetime.utcnow, nullable=False)  # First login/dashboard access
+    is_first_visit = Column(Boolean, default=True)  # True until first data interaction
+    
+    # ===== Common Metrics (All Users) =====
+    total_activities = Column(Integer, default=0)  # Total actions performed
+    total_logins = Column(Integer, default=0)  # Number of times logged in
+    last_activity_at = Column(DateTime, nullable=True)
+    
+    # ===== Admin Dashboard Metrics =====
+    teachers_created = Column(Integer, default=0)  # Number of teachers added
+    teachers_active = Column(Integer, default=0)  # Active teachers
+    students_managed = Column(Integer, default=0)  # Total students across all teachers
+    evaluations_overseen = Column(Integer, default=0)  # Total evaluations by all teachers
+    
+    # ===== Teacher Dashboard Metrics =====
+    students_taught = Column(Integer, default=0)  # Number of students in teacher's classes
+    classes_managed = Column(Integer, default=0)  # Number of classes
+    evaluations_created = Column(Integer, default=0)  # AI evaluations done by teacher
+    manual_evaluations_done = Column(Integer, default=0)  # Manual evaluations by teacher
+    model_answers_uploaded = Column(Integer, default=0)  # Model answer sheets uploaded
+    total_evaluations = Column(Integer, default=0)  # Combined evaluations
+    average_evaluation_score = Column(Float, default=0.0)  # Average score from all evaluations
+    
+    # ===== Student Dashboard Metrics =====
+    assignments_received = Column(Integer, default=0)  # Assignments/questions given
+    assignments_completed = Column(Integer, default=0)  # Submitted answers
+    evaluations_received = Column(Integer, default=0)  # Number of evaluations
+    average_score = Column(Float, default=0.0)  # Average score in evaluations
+    highest_score = Column(Float, default=0.0)  # Best score
+    lowest_score = Column(Float, default=0.0)  # Lowest score
+    total_feedback_received = Column(Integer, default=0)  # Count of feedback items
+    
+    # ===== Engagement Metrics =====
+    documents_uploaded = Column(Integer, default=0)  # Total files uploaded
+    documents_downloaded = Column(Integer, default=0)  # Total files downloaded
+    grievances_filed = Column(Integer, default=0)  # Grievances/complaints filed
+    grievances_resolved = Column(Integer, default=0)  # Resolved grievances
+    community_messages_sent = Column(Integer, default=0)  # Community platform usage
+    
+    # ===== Additional Tracking =====
+    data = Column(JSON, nullable=True)  # Store custom/additional metrics as JSON
+    last_updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Create unique constraint to ensure one dashboard per user
+    __table_args__ = (
+        UniqueConstraint('admin_id', name='unique_admin_dashboard'),
+        UniqueConstraint('teacher_id', name='unique_teacher_dashboard'),
+        UniqueConstraint('student_id', name='unique_student_dashboard'),
+    )
+
+    # Relationships
+    admin = relationship("Admin", foreign_keys=[admin_id])
+    teacher = relationship("Teacher", foreign_keys=[teacher_id])
+    student = relationship("Student", foreign_keys=[student_id])
+    metrics = relationship("DashboardMetric", back_populates="dashboard", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        role_name = ""
+        if self.admin_id:
+            role_name = f"Admin(id={self.admin_id})"
+        elif self.teacher_id:
+            role_name = f"Teacher(id={self.teacher_id})"
+        elif self.student_id:
+            role_name = f"Student(id={self.student_id})"
+        return f"<Dashboard({role_name})>"
+
+    def to_dict(self):
+        """Convert dashboard to dictionary for API responses."""
+        response = {
+            "dashboard_id": self.dashboard_id,
+            "user_role": self.user_role.value if self.user_role else None,
+            "initialized_at": self.initialized_at.isoformat() if self.initialized_at else None,
+            "is_first_visit": self.is_first_visit,
+            "last_updated_at": self.last_updated_at.isoformat() if self.last_updated_at else None,
+            "common_metrics": {
+                "total_activities": self.total_activities,
+                "total_logins": self.total_logins,
+                "last_activity_at": self.last_activity_at.isoformat() if self.last_activity_at else None,
+            }
+        }
+        
+        # Add role-specific metrics
+        if self.user_role == UserRole.ADMIN:
+            response["admin_metrics"] = {
+                "teachers_created": self.teachers_created,
+                "teachers_active": self.teachers_active,
+                "students_managed": self.students_managed,
+                "evaluations_overseen": self.evaluations_overseen,
+            }
+        elif self.user_role == UserRole.TEACHER:
+            response["teacher_metrics"] = {
+                "students_taught": self.students_taught,
+                "classes_managed": self.classes_managed,
+                "evaluations_created": self.evaluations_created,
+                "manual_evaluations_done": self.manual_evaluations_done,
+                "model_answers_uploaded": self.model_answers_uploaded,
+                "total_evaluations": self.total_evaluations,
+                "average_evaluation_score": round(self.average_evaluation_score, 2),
+            }
+        elif self.user_role == UserRole.STUDENT:
+            response["student_metrics"] = {
+                "assignments_received": self.assignments_received,
+                "assignments_completed": self.assignments_completed,
+                "evaluations_received": self.evaluations_received,
+                "average_score": round(self.average_score, 2),
+                "highest_score": round(self.highest_score, 2),
+                "lowest_score": round(self.lowest_score, 2),
+                "total_feedback_received": self.total_feedback_received,
+            }
+        
+        # Add engagement metrics
+        response["engagement_metrics"] = {
+            "documents_uploaded": self.documents_uploaded,
+            "documents_downloaded": self.documents_downloaded,
+            "grievances_filed": self.grievances_filed,
+            "grievances_resolved": self.grievances_resolved,
+            "community_messages_sent": self.community_messages_sent,
+        }
+        
+        # Add custom data if exists
+        if self.data:
+            response["custom_data"] = self.data
+        
+        return response
+
+    def reset_to_zero(self):
+        """Reset all metrics to zero (for new session/period)."""
+        self.total_activities = 0
+        self.total_logins = 0
+        
+        self.teachers_created = 0
+        self.teachers_active = 0
+        self.students_managed = 0
+        self.evaluations_overseen = 0
+        
+        self.students_taught = 0
+        self.classes_managed = 0
+        self.evaluations_created = 0
+        self.manual_evaluations_done = 0
+        self.model_answers_uploaded = 0
+        self.total_evaluations = 0
+        self.average_evaluation_score = 0.0
+        
+        self.assignments_received = 0
+        self.assignments_completed = 0
+        self.evaluations_received = 0
+        self.average_score = 0.0
+        self.highest_score = 0.0
+        self.lowest_score = 0.0
+        self.total_feedback_received = 0
+        
+        self.documents_uploaded = 0
+        self.documents_downloaded = 0
+        self.grievances_filed = 0
+        self.grievances_resolved = 0
+        self.community_messages_sent = 0
+        
+        self.last_activity_at = None
+        self.updated_at = datetime.utcnow()
+
+
+class DashboardMetric(Base):
+    """
+    Dashboard Metric Model
+    -----------------------
+    Stores detailed historical metrics for dashboard trends and analytics.
+    Useful for charting dashboard data over time.
+    """
+    __tablename__ = "dashboard_metrics"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    metric_id = Column(String(50), unique=True, index=True, default=lambda: str(uuid.uuid4()))
+    
+    # Reference to dashboard
+    dashboard_id = Column(Integer, ForeignKey("dashboards.id"), nullable=False, index=True)
+    
+    # Metric details
+    metric_name = Column(String(100), nullable=False)  # e.g., "evaluations_created", "average_score"
+    metric_value = Column(Float, nullable=False)  # The actual value
+    
+    # Time period
+    period_date = Column(DateTime, default=datetime.utcnow, index=True)  # Date the metric was recorded
+    period_type = Column(String(20), default="daily")  # daily, weekly, monthly
+    
+    # Additional context
+    context = Column(JSON, nullable=True)  # Additional data related to metric
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    dashboard = relationship("Dashboard", back_populates="metrics")
+
+    def __repr__(self):
+        return f"<DashboardMetric(dashboard_id={self.dashboard_id}, metric='{self.metric_name}', value={self.metric_value})>"
+
+    def to_dict(self):
+        return {
+            "metric_id": self.metric_id,
+            "metric_name": self.metric_name,
+            "metric_value": self.metric_value,
+            "period_date": self.period_date.isoformat() if self.period_date else None,
+            "period_type": self.period_type,
+            "context": self.context,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 # ========== Database Operations ==========
 class DatabaseManager:
     """
@@ -1204,11 +1446,15 @@ def get_db():
 # ========== Initialize Database ==========
 def init_db():
     """Initialize database tables."""
+    # Drop existing tables to recreate with new schema
+    Base.metadata.drop_all(bind=engine)
+    # Create all tables with the new schema
     Base.metadata.create_all(bind=engine)
 
 
 # Create singleton database manager
 db_manager = DatabaseManager()
 
-# Initialize on module load
-init_db()
+# Note: init_db() is called in api/main.py lifespan on startup
+# Do NOT auto-initialize on import to avoid blocking issues
+# init_db()  # Commented out - called explicitly in main.py

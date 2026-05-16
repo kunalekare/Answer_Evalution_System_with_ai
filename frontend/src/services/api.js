@@ -21,9 +21,9 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    // Add auth token if available (skip demo tokens for debugging)
+    // Add auth token if available (including demo tokens for fallback mode)
     const token = localStorage.getItem('token');
-    if (token && token !== 'demo_token') {
+    if (token) {
       config.headers.Authorization = `Bearer ${token}`;
       // Debug logging for auth issues
       if (config.url?.includes('teacher') || config.url?.includes('student') || config.url?.includes('classes')) {
@@ -64,8 +64,15 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       const currentToken = localStorage.getItem('token');
 
-      // If using demo token or no token, clear session and reject
-      if (!currentToken || currentToken === 'demo_token') {
+      // If using demo token, DO NOT clear session - demo mode should work with fallback data
+      if (currentToken === 'demo_token') {
+        console.warn('[API] Got 401 with demo token - but demo mode should return valid data. Checking backend...');
+        // Don't clear session - backend might start returning demo data
+        return Promise.reject(error);
+      }
+
+      // If no token, clear session and reject
+      if (!currentToken) {
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('assessiq_user');
@@ -234,12 +241,12 @@ export const evaluateText = async ({
 
   console.log('Sending evaluation request:', JSON.stringify(body, null, 2));
 
-  // IMPORTANT: Text evaluation can take 120-180s due to model initialization
-  // First run: models load (~50s) + evaluation (~60s) = 120-180s total
-  // Use 180s timeout to avoid premature cancellation
+  // IMPORTANT: Text evaluation can take 3-10 minutes depending on file size and processing
+  // Large files: OCR extraction + preprocessing + semantic analysis + scoring
+  // Use 600s (10 min) timeout to avoid premature cancellation
   try {
     const response = await api.post('/evaluate/text', body, {
-      timeout: 180000  // 180 seconds for text evaluation (model initialization + processing)
+      timeout: 600000  // 10 minutes for text evaluation (model initialization + processing + large file handling)
     });
     console.log('Text evaluation response:', response);
     return response;
@@ -301,10 +308,10 @@ export const evaluateMultiQuestion = async ({
 
   console.log('Sending multi-question request:', JSON.stringify(body, null, 2));
 
-  // Multi-question evaluation can take 120-180s per question
+  // Multi-question evaluation can take 3-10 minutes depending on file size and number of questions
   try {
     const response = await api.post('/evaluate/text/multi', body, {
-      timeout: 300000  // 300 seconds (5 minutes) for multiple questions
+      timeout: 600000  // 10 minutes (600 seconds) for multiple questions + large file processing
     });
     console.log('Multi-question evaluation response:', response);
     return response;
@@ -338,10 +345,15 @@ export const getResult = async (evaluationId) => {
 /**
  * Extract OCR text from uploaded files
  * This allows users to preview what text was extracted before evaluation.
+ * 
+ * @param {string} evaluationId - The evaluation ID
+ * @param {string} ocrEngine - The OCR engine to use (easyocr, ensemble, tesseract, paddleocr, sarvam)
  */
-export const extractTextFromUpload = async (evaluationId) => {
-  console.log('Extracting text from upload:', evaluationId);
-  const response = await api.get(`/upload/${evaluationId}/extract-text`);
+export const extractTextFromUpload = async (evaluationId, ocrEngine = 'easyocr') => {
+  console.log('Extracting text from upload:', evaluationId, 'engine:', ocrEngine);
+  const response = await api.get(`/upload/${evaluationId}/extract-text`, {
+    params: { ocr_engine: ocrEngine }
+  });
   console.log('Text extraction response:', response);
   return response;
 };

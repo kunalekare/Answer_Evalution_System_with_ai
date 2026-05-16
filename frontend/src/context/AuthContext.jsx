@@ -91,6 +91,41 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('assessiq_user');
       }
     }
+    
+    // Check for OAuth tokens in URL (after redirect from OAuth provider)
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('access_token');
+    const refreshTokenParam = params.get('refresh_token');
+    const userParam = params.get('user');
+    
+    if (accessToken && userParam) {
+      try {
+        const userData = JSON.parse(decodeURIComponent(userParam));
+        setToken(accessToken);
+        setRefreshToken(refreshTokenParam);
+        
+        // Store user data
+        const userObject = {
+          id: userData.id,
+          email: userData.email,
+          name: userData.name,
+          role: userData.role,
+          profile_image: userData.profile_image,
+          [`${userData.role}_id`]: userData.unique_id,
+        };
+        
+        setUser(userObject);
+        localStorage.setItem('token', accessToken);
+        localStorage.setItem('refreshToken', refreshTokenParam);
+        localStorage.setItem('assessiq_user', JSON.stringify(userObject));
+        
+        // Clean up URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (e) {
+        console.error('OAuth token parsing error:', e);
+      }
+    }
+    
     setLoading(false);
   }, []);
 

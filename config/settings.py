@@ -47,29 +47,29 @@ class Settings(BaseSettings):
     
     # ========== File Upload Settings ==========
     UPLOAD_DIR: str = "uploads"
-    MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+    MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB (increased from 10MB for large scanned documents)
     ALLOWED_EXTENSIONS: list = [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".jfif", ".webp", ".gif"]
     
     # ========== OCR Settings ==========
     OCR_ENGINE: str = "easyocr"  # Default: easyocr (lightweight). Use "ensemble" locally for 90%+ accuracy
     # Options: "ensemble", "easyocr", "tesseract", "paddleocr", "sarvam"
-    OCR_LANGUAGES: list = ["en"]  # Languages for OCR
+    OCR_LANGUAGES: list = ["en", "hi"]  # Languages for OCR - supports Hindi, Tamil, Telugu, Kannada, English, etc.
     TESSERACT_PATH: Optional[str] = None  # Path to tesseract executable (auto-detect if None)
-    LOW_MEMORY_MODE: bool = False  # Disable for better OCR accuracy
+    LOW_MEMORY_MODE: bool = True  # Enable for lazy loading of models (faster startup)
     FAST_OCR_MODE: bool = True  # Use engine-specific preprocessing (fewer variants, faster)
-    ENABLE_LANGUAGE_CORRECTION: bool = True
-    ENABLE_LAYOUT_ANALYSIS: bool = True  # Multi-layer language correction (pattern + spell + grammar)
-    ENABLE_CONCEPT_GRAPH: bool = True  # Concept graph matching for per-concept evaluation
-    ENABLE_SENTENCE_ALIGNMENT: bool = True  # Sentence alignment matrix weighting
-    ENABLE_STRUCTURAL_ANALYSIS: bool = True  # Logical structure evaluation (intro/body/conclusion/definitions/examples)
+    ENABLE_LANGUAGE_CORRECTION: bool = False  # Disabled for faster testing
+    ENABLE_LAYOUT_ANALYSIS: bool = False  # Disabled for faster testing
+    ENABLE_CONCEPT_GRAPH: bool = True  # ✅ ENABLED - Concept graph extraction and matching
+    ENABLE_SENTENCE_ALIGNMENT: bool = True  # ✅ ENABLED - Sentence alignment matrix scoring
+    ENABLE_STRUCTURAL_ANALYSIS: bool = True  # ✅ ENABLED - Document structure evaluation
     STRUCTURAL_BONUS_CAP: float = 0.08  # Max bonus added to final score for good structure
-    ENABLE_ANTI_GAMING: bool = True  # Anti-gaming protection (repetition, irrelevance, keyword stuffing, gibberish)
+    ENABLE_ANTI_GAMING: bool = True  # ✅ ENABLED - Gaming pattern detection
     ANTI_GAMING_MAX_PENALTY: float = 0.40  # Max penalty subtracted for gaming detection
-    ENABLE_RUBRIC_SCORING: bool = True  # Professional rubric-based evaluation (board-exam style multi-dimension scoring)
-    ENABLE_BLOOM_TAXONOMY: bool = True  # Bloom's Taxonomy cognitive-level evaluation
+    ENABLE_RUBRIC_SCORING: bool = True  # ✅ ENABLED - Professional rubric-based evaluation
+    ENABLE_BLOOM_TAXONOMY: bool = True  # ✅ ENABLED - Bloom's taxonomy cognitive level analysis
     BLOOM_MAX_PENALTY: float = 0.15  # Max penalty when student answer is below expected cognitive level
     BLOOM_MAX_BONUS: float = 0.05  # Max bonus when student exceeds expected cognitive level
-    ENABLE_CONFIDENCE_INDEX: bool = True  # Confidence & Reliability Index for every evaluation
+    ENABLE_CONFIDENCE_INDEX: bool = True  # ✅ ENABLED - Confidence & reliability index
     CONFIDENCE_REVIEW_THRESHOLD: float = 0.70  # Flag for manual review if confidence < this
     
     # ========== Sarvam AI OCR Settings ==========
@@ -115,6 +115,25 @@ class Settings(BaseSettings):
     DIAGRAM_FEATURE_WEIGHT: float = 0.6
     MIN_FEATURE_MATCHES: int = 10
     
+    # ========== OAuth Settings ==========
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/oauth/google/callback"
+    
+    # GitHub OAuth
+    GITHUB_CLIENT_ID: Optional[str] = None
+    GITHUB_CLIENT_SECRET: Optional[str] = None
+    GITHUB_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/oauth/github/callback"
+    
+    # Frontend OAuth redirect
+    FRONTEND_URL: str = "http://localhost:3000"
+    OAUTH_SUCCESS_REDIRECT: str = "http://localhost:3000/dashboard"
+    OAUTH_ERROR_REDIRECT: str = "http://localhost:3000/?error=oauth_failed"
+    
+    # ========== JWT Settings ==========
+    JWT_SECRET_KEY: str = "your-super-secret-key-change-in-production"
+    
     # ========== Logging Settings ==========
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/assessiq.log"
@@ -123,6 +142,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "allow"  # Allow extra fields from .env that aren't explicitly defined
 
 
 @lru_cache()

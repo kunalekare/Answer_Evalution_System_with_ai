@@ -202,7 +202,18 @@ export default function StudentManagement() {
         toast.success('Student added successfully');
         setOpenAddDialog(false);
         setStudentForm(initialStudentForm);
-        fetchStudents();
+        // Reset pagination to page 0 to see newly added student, then refresh
+        setPage(0);
+        // Delay slightly to ensure page state updates before fetch
+        setTimeout(() => {
+          setStudents([]);  // Clear old data first
+          getStudents(1, rowsPerPage, searchQuery, filterClass).then(resp => {
+            if (resp.success && resp.data) {
+              setStudents(resp.data.students || []);
+              setTotalStudents(resp.data.pagination?.total || 0);
+            }
+          });
+        }, 100);
       }
     } catch (error) {
       console.error('Error adding student:', error);

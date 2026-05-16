@@ -20,8 +20,6 @@ import {
   TablePagination,
   Chip,
   IconButton,
-  TextField,
-  InputAdornment,
   FormControl,
   InputLabel,
   Select,
@@ -31,9 +29,7 @@ import {
   Button,
 } from '@mui/material';
 import {
-  Search as SearchIcon,
   Visibility as ViewIcon,
-  Delete as DeleteIcon,
   FilterList as FilterIcon,
   Download as DownloadIcon,
   Refresh as RefreshIcon,
@@ -46,79 +42,55 @@ const gradeColors = {
   poor: 'error',
 };
 
-// Mock data for demonstration
-const mockEvaluations = [
-  {
-    evaluation_id: 'eval-001',
-    student_name: 'John Doe',
-    subject: 'Biology',
-    final_score: 92.5,
-    max_marks: 10,
-    obtained_marks: 9.25,
-    grade: 'excellent',
-    timestamp: '2026-01-27T10:30:00Z',
-  },
-  {
-    evaluation_id: 'eval-002',
-    student_name: 'Jane Smith',
-    subject: 'Physics',
-    final_score: 78.3,
-    max_marks: 10,
-    obtained_marks: 7.83,
-    grade: 'good',
-    timestamp: '2026-01-27T09:15:00Z',
-  },
-  {
-    evaluation_id: 'eval-003',
-    student_name: 'Bob Wilson',
-    subject: 'Chemistry',
-    final_score: 65.0,
-    max_marks: 10,
-    obtained_marks: 6.5,
-    grade: 'average',
-    timestamp: '2026-01-26T14:45:00Z',
-  },
-  {
-    evaluation_id: 'eval-004',
-    student_name: 'Alice Brown',
-    subject: 'Biology',
-    final_score: 88.7,
-    max_marks: 10,
-    obtained_marks: 8.87,
-    grade: 'excellent',
-    timestamp: '2026-01-26T11:20:00Z',
-  },
-  {
-    evaluation_id: 'eval-005',
-    student_name: 'Charlie Davis',
-    subject: 'Mathematics',
-    final_score: 45.2,
-    max_marks: 10,
-    obtained_marks: 4.52,
-    grade: 'poor',
-    timestamp: '2026-01-25T16:00:00Z',
-  },
-];
-
 function History() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [evaluations, setEvaluations] = useState([]);
+  const [totalEvaluations, setTotalEvaluations] = useState(0);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [searchQuery, setSearchQuery] = useState('');
   const [gradeFilter, setGradeFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('desc');
 
+  // Fetch evaluations from API
   useEffect(() => {
-    // Simulate API call
     const fetchData = async () => {
-      setLoading(true);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      setEvaluations(mockEvaluations);
-      setLoading(false);
+      try {
+        setLoading(true);
+        const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+        
+        const gradeParam = gradeFilter !== 'all' ? `&grade_filter=${gradeFilter}` : '';
+        const url = `http://localhost:8000/api/v1/dashboard/evaluations?skip=${page * rowsPerPage}&limit=${rowsPerPage}&sort_by=${sortBy}&sort_order=${sortOrder}${gradeParam}`;
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch evaluations: ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (result.data && Array.isArray(result.data)) {
+          setEvaluations(result.data);
+          setTotalEvaluations(result.total || 0);
+        }
+      } catch (err) {
+        console.error('Error fetching evaluations:', err);
+        setEvaluations([]);
+        setTotalEvaluations(0);
+      } finally {
+        setLoading(false);
+      }
     };
+    
     fetchData();
-  }, []);
+  }, [page, rowsPerPage, gradeFilter, sortBy, sortOrder]);
 
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
@@ -133,21 +105,10 @@ function History() {
     navigate(`/results/${evaluationId}`);
   };
 
-  const handleDelete = (evaluationId) => {
-    setEvaluations(evaluations.filter((e) => e.evaluation_id !== evaluationId));
+  const handleGradeFilterChange = (event) => {
+    setGradeFilter(event.target.value);
+    setPage(0);
   };
-
-  // Filter evaluations
-  const filteredEvaluations = evaluations.filter((e) => {
-    const matchesSearch =
-      e.student_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.evaluation_id.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesGrade = gradeFilter === 'all' || e.grade === gradeFilter;
-    
-    return matchesSearch && matchesGrade;
-  });
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -179,26 +140,6 @@ function History() {
             alignItems: 'center',
             flexDirection: { xs: 'column', sm: 'row' },
           }}>
-            <TextField
-              placeholder="Search by student, subject, or ID..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              size="small"
-              sx={{ 
-                minWidth: { xs: '100%', sm: 250, md: 300 },
-                '& .MuiInputBase-input': {
-                  fontSize: { xs: '0.8rem', md: '0.875rem' },
-                },
-              }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon sx={{ fontSize: { xs: 18, md: 24 } }} />
-                  </InputAdornment>
-                ),
-              }}
-            />
-            
             <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 120, md: 150 } }}>
               <InputLabel sx={{ fontSize: { xs: '0.8rem', md: '0.875rem' } }}>Grade</InputLabel>
               <Select
@@ -250,16 +191,14 @@ function History() {
                 <Skeleton animation="wave" height={32} width="40%" sx={{ mt: 1 }} />
               </Paper>
             ))
-          ) : filteredEvaluations.length === 0 ? (
+          ) : evaluations.length === 0 ? (
             <Box sx={{ py: 6, textAlign: 'center' }}>
               <Typography variant="body1" color="text.secondary">
                 No evaluations found
               </Typography>
             </Box>
           ) : (
-            filteredEvaluations
-              .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-              .map((evaluation) => (
+            evaluations.map((evaluation) => (
                 <Paper
                   key={evaluation.evaluation_id}
                   elevation={0}
@@ -278,11 +217,11 @@ function History() {
                         {evaluation.student_name || 'N/A'}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {evaluation.subject || 'N/A'} • {formatDate(evaluation.timestamp)}
+                        {evaluation.subject || 'N/A'} • {formatDate(evaluation.created_at)}
                       </Typography>
                     </Box>
                     <Chip
-                      label={evaluation.grade}
+                      label={evaluation.grade.charAt(0).toUpperCase() + evaluation.grade.slice(1)}
                       color={gradeColors[evaluation.grade]}
                       size="small"
                       sx={{ textTransform: 'capitalize', fontSize: '0.65rem', height: 22 }}
@@ -291,10 +230,10 @@ function History() {
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.5 }}>
                     <Box>
                       <Typography variant="h6" fontWeight={700} color="primary.main" sx={{ fontSize: '1.1rem' }}>
-                        {evaluation.final_score.toFixed(1)}%
+                        {evaluation.final_score?.toFixed(1) || '0'}%
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {evaluation.obtained_marks} / {evaluation.max_marks} marks
+                        {evaluation.obtained_marks?.toFixed(1) || '0'} / {evaluation.max_marks} marks
                       </Typography>
                     </Box>
                     <Box>
@@ -304,13 +243,6 @@ function History() {
                         sx={{ color: 'primary.main' }}
                       >
                         <ViewIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleDelete(evaluation.evaluation_id)}
-                        sx={{ color: 'error.main' }}
-                      >
-                        <DeleteIcon fontSize="small" />
                       </IconButton>
                     </Box>
                   </Box>
@@ -346,7 +278,7 @@ function History() {
                     ))}
                   </TableRow>
                 ))
-              ) : filteredEvaluations.length === 0 ? (
+              ) : evaluations.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
                     <Typography variant="body1" color="text.secondary">
@@ -355,9 +287,7 @@ function History() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredEvaluations
-                  .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                  .map((evaluation) => (
+                evaluations.map((evaluation) => (
                     <TableRow
                       key={evaluation.evaluation_id}
                       hover
@@ -382,15 +312,15 @@ function History() {
                       </TableCell>
                       <TableCell align="center">
                         <Typography variant="body2" fontWeight={600} color="primary.main">
-                          {evaluation.final_score.toFixed(1)}%
+                          {evaluation.final_score?.toFixed(1) || '0'}%
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
-                        {evaluation.obtained_marks} / {evaluation.max_marks}
+                        {evaluation.obtained_marks?.toFixed(1) || '0'} / {evaluation.max_marks}
                       </TableCell>
                       <TableCell align="center">
                         <Chip
-                          label={evaluation.grade}
+                          label={evaluation.grade.charAt(0).toUpperCase() + evaluation.grade.slice(1)}
                           color={gradeColors[evaluation.grade]}
                           size="small"
                           sx={{ textTransform: 'capitalize' }}
@@ -409,13 +339,6 @@ function History() {
                         >
                           <ViewIcon />
                         </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDelete(evaluation.evaluation_id)}
-                          title="Delete"
-                        >
-                          <DeleteIcon />
-                        </IconButton>
                       </TableCell>
                     </TableRow>
                   ))
@@ -427,7 +350,7 @@ function History() {
         <TablePagination
           rowsPerPageOptions={[5, 10, 25]}
           component="div"
-          count={filteredEvaluations.length}
+          count={totalEvaluations}
           rowsPerPage={rowsPerPage}
           page={page}
           onPageChange={handleChangePage}

@@ -51,6 +51,7 @@ import base64
 import tempfile
 import requests
 import difflib
+import zipfile
 from typing import Optional, List, Tuple, Union, Dict
 from pathlib import Path
 from collections import Counter
@@ -871,6 +872,31 @@ class OCRService:
         self._paddleocr_engine = None
         self._engine = None  # backward compat
         self._engine_initialized = False
+        
+        # Initialize Sarvam languages dict (used by multiple methods)
+        self._sarvam_languages = {
+            'en': 'en', 'english': 'en',
+            'hi': 'hi', 'hindi': 'hi',
+            'ta': 'ta', 'tamil': 'ta',
+            'te': 'te', 'telugu': 'te',
+            'kn': 'kn', 'kannada': 'kn',
+            'ml': 'ml', 'malayalam': 'ml',
+            'mr': 'mr', 'marathi': 'mr',
+            'gu': 'gu', 'gujarati': 'gu',
+            'pa': 'pa', 'punjabi': 'pa',
+            'bn': 'bn', 'bengali': 'bn',
+            'or': 'or', 'odia': 'or',
+            'ur': 'ur', 'urdu': 'ur',
+            'es': 'es', 'spanish': 'es',
+            'fr': 'fr', 'french': 'fr',
+            'de': 'de', 'german': 'de',
+            'pt': 'pt', 'portuguese': 'pt',
+            'it': 'it', 'italian': 'it',
+            'ja': 'ja', 'japanese': 'ja',
+            'zh': 'zh', 'chinese': 'zh',
+            'ar': 'ar', 'arabic': 'ar',
+            'ru': 'ru', 'russian': 'ru',
+        }
 
         if not self.low_memory_mode:
             self._init_engine()
@@ -891,6 +917,58 @@ class OCRService:
             except Exception as e:
                 logger.warning(f"Language corrector init failed (corrections disabled): {e}")
                 self._enable_language_correction = False
+
+    # ==================== HTML Stripping ====================
+
+    def _strip_html(self, text: str) -> str:
+        """
+        Remove HTML tags and decode HTML entities from extracted text.
+        
+        Handles:
+        - HTML tags (<table>, <tr>, <td>, etc.)
+        - HTML entities (&nbsp;, &lt;, etc.)
+        - Multiple spaces/newlines
+        - Markdown-style HTML tables
+        
+        Args:
+            text: Raw text with potential HTML markup
+            
+        Returns:
+            Clean text with HTML removed and entities decoded
+        """
+        if not text:
+            return text
+        
+        try:
+            import html
+            from html.parser import HTMLParser
+            
+            # First check if there are actual HTML tags
+            has_html_tags = bool(re.search(r'<\s*[a-zA-Z][^>]*>', text))
+            
+            if not has_html_tags:
+                # If no HTML tags, just decode entities and return
+                text = html.unescape(text)
+                return text.strip()
+            
+            # Decode HTML entities first (to preserve things like &lt;ABC&gt; as text)
+            text = html.unescape(text)
+            
+            # Now remove HTML tags using regex (more reliable than parser for edge cases)
+            # This pattern matches opening and closing tags but preserves text between them
+            text = re.sub(r'<[^>]+>', ' ', text)
+            
+        except Exception as e:
+            logger.debug(f"HTML processing error, using fallback: {e}")
+            # Fallback: just remove angle brackets
+            text = re.sub(r'<[^>]+>', ' ', text)
+        
+        # Clean up whitespace
+        text = re.sub(r'\n\s*\n', '\n', text)  # Remove blank lines
+        text = re.sub(r' +', ' ', text)         # Remove multiple spaces
+        text = text.strip()
+        
+        return text
 
     def _apply_language_correction(self, text: str, mode: str = "fast") -> str:
         """
@@ -1022,21 +1100,286 @@ class OCRService:
         from config.settings import settings
         self._sarvam_api_key = getattr(settings, 'SARVAM_API_KEY', None)
         self._sarvam_api_url = getattr(settings, 'SARVAM_API_URL', 'https://api.sarvam.ai/parse-image')
-        self._fast_ocr_mode = getattr(settings, 'FAST_OCR_MODE', True)
+        
+        # Validate Sarvam API is properly configured
         if not self._sarvam_api_key:
-            raise ValueError("Sarvam AI API key not configured")
+            error_msg = "Sarvam AI API key not configured. Set SARVAM_API_KEY in .env file."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._sarvam_api_url:
+            error_msg = "Sarvam AI API URL not configured. Set SARVAM_API_URL in .env file."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        # Note: _sarvam_languages is already initialized in __init__
+        self._fast_ocr_mode = getattr(settings, 'FAST_OCR_MODE', True)
         self.engine_name = "sarvam"
         self._engine = "sarvam_api"
-        logger.info("Sarvam AI OCR initialised")
+        logger.info(f"Sarvam AI OCR initialised with API URL: {self._sarvam_api_url}")
+        logger.info("Sarvam AI OCR initialised with support for 22+ languages")
 
-    def _extract_sarvam_api_direct(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
-        """Extract text using Sarvam AI Parse API directly (RESTful API)."""
+    def _detect_language_from_path(self, image_path: str) -> str:
+        """
+        Detect language from filename or use primary language from config.
+        
+        Returns language code suitable for Sarvam API (2-letter code).
+        """
+        # Extract language from filename (e.g., "answer_hindi.png" → "hi")
+        filename = os.path.basename(image_path).lower()
+        for lang_name, lang_code in self._sarvam_languages.items():
+            if lang_name in filename:
+                logger.info(f"[Sarvam API] Detected language from filename: {lang_name} ({lang_code})")
+                return lang_code
+        
+        # Try to use primary language from config (usually first in list)
+        if self.languages:
+            primary_lang = self.languages[0].lower()
+            if primary_lang in self._sarvam_languages:
+                lang_code = self._sarvam_languages[primary_lang]
+                logger.info(f"[Sarvam API] Using primary language from config: {primary_lang} ({lang_code})")
+                return lang_code
+        
+        # Default to English
+        logger.info("[Sarvam API] No language detected, defaulting to English")
+        return 'en'
+
+    def _extract_sarvam_sdk_direct(self, image_path: str, detail: bool, language: str = None) -> Union[str, List[dict]]:
+        """
+        Extract text using Sarvam AI Python SDK (Best approach for handwritten text).
+        
+        This method is MOST RELIABLE because:
+        - Uses official Sarvam SDK (not REST API)
+        - Handles multi-page PDFs natively
+        - Better error handling and retries
+        - Faster processing with proper job management
+        
+        Args:
+            image_path: Path to image or PDF file
+            detail: Whether to return detailed results
+            language: Language code (e.g., 'en', 'hi', 'ta'). Auto-detected if None.
+        """
         try:
-            # Read image file and encode as base64
+            from sarvamai import SarvamAI
+            from PIL import Image
+            import gc
+            
+            if not self._sarvam_api_key:
+                logger.debug("[Sarvam SDK] API key not configured")
+                return "" if not detail else []
+            
+            # Detect language if not provided
+            if language is None:
+                language = self._detect_language_from_path(image_path) if hasattr(self, '_detect_language_from_path') else 'en'
+            
+            # Map 2-letter code to Sarvam language tag
+            language_map = {
+                'en': 'en-IN', 'hi': 'hi-IN', 'ta': 'ta-IN', 'te': 'te-IN',
+                'kn': 'kn-IN', 'ml': 'ml-IN', 'mr': 'mr-IN', 'gu': 'gu-IN',
+                'pa': 'pa-IN', 'bn': 'bn-IN', 'or': 'or-IN', 'ur': 'ur-IN',
+                'es': 'es', 'fr': 'fr', 'de': 'de', 'pt': 'pt', 'it': 'it',
+                'ja': 'ja', 'zh': 'zh', 'ar': 'ar', 'ru': 'ru',
+            }
+            sarvam_language = language_map.get(language, 'en-IN')
+            
+            logger.info(f"[Sarvam SDK] Using language: {sarvam_language}")
+            
+            # Prepare file for upload
+            file_to_process = image_path
+            temp_pdf = None
+            
+            # Convert image to PDF if needed
+            if not image_path.lower().endswith('.pdf'):
+                logger.debug("[Sarvam SDK] Converting image to PDF for optimal SDK processing...")
+                temp_pdf_file = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+                temp_pdf = temp_pdf_file.name
+                temp_pdf_file.close()
+                
+                try:
+                    img = Image.open(image_path)
+                    if img.mode == 'RGBA':
+                        img = img.convert('RGB')
+                    img.save(temp_pdf, 'PDF', resolution=300)
+                    del img
+                    gc.collect()
+                    file_to_process = temp_pdf
+                except Exception as e:
+                    logger.warning(f"[Sarvam SDK] Image to PDF conversion failed: {e}")
+                    # Continue with original image
+                    file_to_process = image_path
+            
+            try:
+                # Initialize Sarvam client
+                logger.debug("[Sarvam SDK] Initializing SarvamAI client...")
+                client = SarvamAI(api_subscription_key=self._sarvam_api_key)
+                
+                # Create job
+                logger.debug("[Sarvam SDK] Creating document intelligence job...")
+                job = client.document_intelligence.create_job(
+                    language=sarvam_language,
+                    output_format="md"  # Markdown format for clean text
+                )
+                logger.debug(f"[Sarvam SDK] Job created: {job.job_id}")
+                
+                # Upload file
+                logger.debug(f"[Sarvam SDK] Uploading {os.path.basename(file_to_process)}...")
+                job.upload_file(file_to_process)
+                logger.debug("[Sarvam SDK] File uploaded successfully")
+                
+                # Start processing
+                logger.debug("[Sarvam SDK] Starting job processing...")
+                job.start()
+                
+                # Wait for completion
+                logger.debug("[Sarvam SDK] Waiting for completion (this may take a minute)...")
+                status = job.wait_until_complete()
+                logger.debug(f"[Sarvam SDK] Job completed: {status.job_state}")
+                
+                # Get page metrics
+                try:
+                    metrics = job.get_page_metrics()
+                    logger.debug(f"[Sarvam SDK] Page metrics: {metrics}")
+                except:
+                    pass
+                
+                # Download and extract text
+                logger.debug("[Sarvam SDK] Downloading output...")
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Download the ZIP file
+                    zip_path = os.path.join(temp_dir, "output.zip")
+                    job.download_output(zip_path)
+                    logger.debug(f"[Sarvam SDK] Output downloaded to {zip_path}")
+                    
+                    # Extract ZIP if it exists
+                    text = ""
+                    if os.path.exists(zip_path) and zip_path.endswith('.zip'):
+                        logger.debug("[Sarvam SDK] Extracting ZIP file...")
+                        import zipfile
+                        extract_dir = os.path.join(temp_dir, "extracted")
+                        os.makedirs(extract_dir, exist_ok=True)
+                        
+                        try:
+                            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                                zip_ref.extractall(extract_dir)
+                            logger.debug(f"[Sarvam SDK] ZIP extracted to {extract_dir}")
+                            
+                            # Now read the extracted files
+                            output_items = list(Path(extract_dir).glob("**/*"))
+                            logger.debug(f"[Sarvam SDK] Found {len(output_items)} extracted items")
+                            
+                            # Try to read in order of preference: document.md > .md > .txt > .html
+                            for ext in ['document.md', '.md', '.txt', '.html', '']:
+                                for file_item in output_items:
+                                    if file_item.is_file():
+                                        # Check if filename matches or has matching extension
+                                        if (ext and (file_item.name == ext or file_item.suffix == ext)) or (not ext):
+                                            try:
+                                                with open(file_item, 'r', encoding='utf-8', errors='ignore') as f:
+                                                    content = f.read().strip()
+                                                    if content and len(content) > len(text) and not content.startswith('PK'):
+                                                        text = content
+                                                        logger.debug(f"[Sarvam SDK] ✓ Read {len(text)} chars from {file_item.name}")
+                                            except Exception as read_err:
+                                                logger.debug(f"[Sarvam SDK] Could not read {file_item.name}: {read_err}")
+                                if text:
+                                    break
+                                    
+                        except zipfile.BadZipFile:
+                            logger.warning("[Sarvam SDK] ZIP file is corrupted or not a valid ZIP")
+                            # Try to read as directory (if output is already extracted)
+                            output_items = list(Path(temp_dir).glob("**/*"))
+                            for ext in ['.md', '.txt', '.html', '']:
+                                for file_item in output_items:
+                                    if file_item.is_file() and (file_item.suffix == ext or not ext):
+                                        try:
+                                            with open(file_item, 'r', encoding='utf-8', errors='ignore') as f:
+                                                content = f.read().strip()
+                                                if content and not content.startswith('PK'):
+                                                    text = content
+                                                    logger.debug(f"[Sarvam SDK] Read {len(text)} chars from {file_item.name}")
+                                        except:
+                                            pass
+                    else:
+                        # If output is not ZIP, try to read files directly
+                        output_items = list(Path(temp_dir).glob("**/*"))
+                        logger.debug(f"[Sarvam SDK] Reading output files directly (not ZIP)")
+                        
+                        for ext in ['.md', '.txt', '.html', '']:
+                            for file_item in output_items:
+                                if file_item.is_file() and (file_item.suffix == ext or not ext):
+                                    try:
+                                        with open(file_item, 'r', encoding='utf-8', errors='ignore') as f:
+                                            content = f.read().strip()
+                                            if content and not content.startswith('PK'):
+                                                text = content
+                                                logger.debug(f"[Sarvam SDK] Read {len(text)} chars from {file_item.name}")
+                                    except Exception as read_err:
+                                        logger.debug(f"[Sarvam SDK] Could not read {file_item.name}: {read_err}")
+                            if text:
+                                break
+                    
+                    if text:
+                        # Strip HTML tags from extracted text
+                        text = self._strip_html(text)
+                        logger.info(f"[Sarvam SDK] SUCCESS - Extracted {len(text)} characters in language={sarvam_language}")
+                        if detail:
+                            return [{
+                                'text': text,
+                                'confidence': 1.0,
+                                'engine': 'sarvam_sdk',
+                                'language': sarvam_language,
+                                'job_id': job.job_id
+                            }]
+                        return text.strip()
+                    else:
+                        logger.warning("[Sarvam SDK] No text found in output files")
+                        
+            except Exception as job_err:
+                logger.error(f"[Sarvam SDK] Job processing error: {type(job_err).__name__}: {job_err}")
+                import traceback
+                logger.debug(f"[Sarvam SDK] Traceback:\n{traceback.format_exc()}")
+                
+        except ImportError:
+            logger.warning("[Sarvam SDK] SarvamAI SDK not installed: pip install sarvamai")
+        except Exception as e:
+            logger.error(f"[Sarvam SDK] Error: {type(e).__name__}: {e}")
+            import traceback
+            logger.debug(f"[Sarvam SDK] Traceback:\n{traceback.format_exc()}")
+        
+        finally:
+            # Cleanup temporary PDF
+            if temp_pdf:
+                try:
+                    os.remove(temp_pdf)
+                except:
+                    pass
+        
+        return "" if not detail else []
+
+    def _extract_sarvam_api_direct(self, image_path: str, detail: bool, language: str = None) -> Union[str, List[dict]]:
+        """
+        Extract text using Sarvam AI Parse API directly (RESTful API).
+        
+        Args:
+            image_path: Path to image file
+            detail: Whether to return detailed results with confidence scores
+            language: Language code (e.g., 'en', 'hi', 'ta'). Auto-detected if None.
+        """
+        # Validate Sarvam is properly configured
+        if not self._sarvam_api_key or not self._sarvam_api_url:
+            logger.warning("[Sarvam API] Not configured - API key or URL missing")
+            return "" if not detail else []
+        
+        try:
+            # Detect language if not provided
+            if language is None:
+                language = self._detect_language_from_path(image_path)
+            
+            # Read image file
             with open(image_path, 'rb') as f:
                 image_data = f.read()
             
-            # Prepare the request
+            # Prepare the request with proper authentication
             headers = {
                 'Authorization': f'Bearer {self._sarvam_api_key}',
                 'Accept': 'application/json',
@@ -1046,13 +1389,15 @@ class OCRService:
                 'file': (os.path.basename(image_path), image_data)
             }
             
+            # Include language parameter for Sarvam API
             data = {
                 'threshold': '0.5',
-                'page_number': '1'
+                'page_number': '1',
+                'language': language,
             }
             
             # Make API request
-            logger.info(f"Calling Sarvam API: {self._sarvam_api_url}")
+            logger.info(f"[Sarvam API] POST {self._sarvam_api_url} with language={language}")
             response = requests.post(
                 self._sarvam_api_url,
                 headers=headers,
@@ -1061,21 +1406,42 @@ class OCRService:
                 timeout=120
             )
             
+            # Log response details for debugging
+            logger.info(f"[Sarvam API] Response status: {response.status_code}")
+            
             if response.status_code == 200:
                 result = response.json()
                 # Extract text from response
                 text = result.get('text', '') or result.get('output', {}).get('text', '')
                 
                 if text:
-                    logger.info(f"Sarvam API extracted {len(text)} characters")
+                    logger.info(f"[Sarvam API] ✓ SUCCESS - Extracted {len(text)} chars in language={language}")
                     if detail:
-                        return [{'text': text, 'confidence': 1.0, 'engine': 'sarvam_api'}]
+                        return [{'text': text, 'confidence': 1.0, 'engine': 'sarvam_api', 'language': language}]
                     return text.strip()
+                else:
+                    logger.warning(f"[Sarvam API] No text extracted from response")
+            elif response.status_code == 401:
+                logger.error(f"[Sarvam API] AUTHENTICATION FAILED (401)")
+                logger.error(f"   Cause: Invalid or expired API key")
+                logger.error(f"   Fix: Check API key at https://console.sarvam.ai/")
+            elif response.status_code == 404:
+                logger.error(f"[Sarvam API] ENDPOINT NOT FOUND (404)")
+                logger.error(f"   Current endpoint: {self._sarvam_api_url}")
+                logger.error(f"   Fix: Update SARVAM_API_URL in .env file")
+                logger.error(f"   Docs: https://sarvam.ai/api-documentation")
+            elif response.status_code == 429:
+                logger.warning(f"[Sarvam API] RATE LIMIT (429) - Too many requests")
             else:
-                logger.warning(f"Sarvam API error: {response.status_code} - {response.text}")
+                logger.warning(f"[Sarvam API] ERROR {response.status_code}: {response.text[:200]}")
         
+        except requests.exceptions.Timeout:
+            logger.error("[Sarvam API] TIMEOUT - Request took too long (>120s)")
+        except requests.exceptions.ConnectionError:
+            logger.error("[Sarvam API] CONNECTION ERROR - Cannot reach API")
+            logger.error("   Possible causes: No internet, firewall blocking, API down")
         except Exception as e:
-            logger.warning(f"Sarvam API Direct: {e}")
+            logger.error(f"[Sarvam API] ERROR - {type(e).__name__}: {e}")
         
         return "" if not detail else []
 
@@ -1104,29 +1470,37 @@ class OCRService:
         image_path: str,
         preprocess: bool = True,
         detail: bool = False,
+        language: str = None,
     ) -> Union[str, List[dict]]:
         """
-        Extract text from an image or PDF.
+        Extract text from an image or PDF with optional language support.
 
         For engine="ensemble": runs PaddleOCR + EasyOCR + Tesseract in PARALLEL,
         each on their optimal preprocessed variant, then fuses results via
         confidence-weighted word voting for 90%+ accuracy.
+        
+        Args:
+            image_path: Path to image or PDF file
+            preprocess: Whether to apply preprocessing (for local engines)
+            detail: Whether to return detailed results with confidence scores
+            language: Language code (e.g., 'en', 'hi', 'ta'). 
+                     Used primarily for Sarvam AI. If None, auto-detects from filename.
         """
         self._ensure_engine_initialized()
-        logger.info(f"extract_text({image_path}, engine={self.engine_name})")
+        logger.info(f"extract_text({image_path}, engine={self.engine_name}, language={language})")
 
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found: {image_path}")
 
-        # PDF handling
+        # PDF handling with language support
         if image_path.lower().endswith('.pdf'):
-            return self._extract_from_pdf(image_path, preprocess, detail)
+            return self._extract_from_pdf(image_path, preprocess, detail, language=language)
 
-        # Sarvam cloud API
+        # Sarvam cloud API - EXCLUSIVE (no fallback chain)
         if self.engine_name == "sarvam":
             start = time.time()
-            result = self._extract_sarvam(image_path, detail)
-            logger.info(f"Sarvam extraction done in {time.time()-start:.1f}s")
+            result = self._extract_sarvam_exclusive(image_path, detail, language=language)
+            logger.info(f"Sarvam EXCLUSIVE extraction done in {time.time()-start:.1f}s")
             return result
 
         # ENSEMBLE MODE - the star of the show
@@ -1679,36 +2053,131 @@ class OCRService:
 
     # ==================== Sarvam / Cloud OCR ====================
 
-    def _extract_sarvam(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
-        """Cloud OCR: Sarvam Direct API → Google Vision → OCR.space → Sarvam PDF → EasyOCR fallback."""
+    def _extract_sarvam_exclusive(self, image_path: str, detail: bool, language: str = None) -> Union[str, List[dict]]:
+        """
+        EXCLUSIVE Sarvam extraction (NO fallback chain).
+        When user explicitly selects Sarvam, use ONLY Sarvam - don't fall back to other engines.
+        This prevents confusion about which engine is actually being used.
+        
+        Returns text OR raises error if Sarvam fails.
+        """
         start = time.time()
+        
+        logger.info(f"[SARVAM EXCLUSIVE] Starting EXCLUSIVE Sarvam extraction (no fallback)")
+        
+        # Auto-detect language if not provided
+        if language is None:
+            language = self._detect_language_from_path(image_path)
 
-        # Try Sarvam API directly first (most reliable for us)
-        result = self._extract_sarvam_api_direct(image_path, detail)
-        if result and len(result) > 50:
+        # Check if Sarvam is configured
+        if not self._sarvam_api_key or not self._sarvam_api_url:
+            raise ValueError(
+                "Sarvam AI not configured. Please set SARVAM_API_KEY and SARVAM_API_URL in .env"
+            )
+
+        # Try Sarvam SDK Direct (BEST for handwritten text and multi-page PDFs)
+        logger.info("[SARVAM EXCLUSIVE] Trying Sarvam SDK Direct (best for handwritten text)...")
+        try:
+            result = self._extract_sarvam_sdk_direct(image_path, detail, language=language)
             elapsed = time.time() - start
-            logger.info(f"Sarvam API Direct: {len(result)} chars in {elapsed:.1f}s")
-            return self._postprocess_ocr(result) if not detail else result
+            if result and (len(result) > 50 if isinstance(result, str) else len(result) > 0):
+                logger.info(f"[SARVAM EXCLUSIVE] Sarvam SDK succeeded ({len(result)} chars in {elapsed:.1f}s)")
+                return self._postprocess_ocr(result) if not detail else result
+            else:
+                logger.warning(f"[SARVAM EXCLUSIVE] Sarvam SDK returned empty result")
+        except Exception as sdk_error:
+            sdk_error_str = str(sdk_error).lower()
+            # Check for network connectivity errors
+            is_network_error = any(err in sdk_error_str for err in ['connecterror', 'getaddrinfo', 'timeout', 'connection refused', 'no route', 'nodename'])
+            if is_network_error:
+                logger.warning(f"[SARVAM EXCLUSIVE] Network connectivity issue detected: {sdk_error}")
+            else:
+                logger.warning(f"[SARVAM EXCLUSIVE] Sarvam SDK failed: {sdk_error}")
 
+        # Try Sarvam API REST as fallback (within Sarvam only, not switching engines)
+        logger.info("[SARVAM EXCLUSIVE] Trying Sarvam API REST (fallback within Sarvam)...")
+        try:
+            result = self._extract_sarvam_api_direct(image_path, detail, language=language)
+            elapsed = time.time() - start
+            if result and (len(result) > 50 if isinstance(result, str) else len(result) > 0):
+                logger.info(f"[SARVAM EXCLUSIVE] Sarvam API succeeded ({len(result)} chars in {elapsed:.1f}s)")
+                return self._postprocess_ocr(result) if not detail else result
+            else:
+                logger.warning(f"[SARVAM EXCLUSIVE] Sarvam API returned empty result")
+        except Exception as api_error:
+            logger.warning(f"[SARVAM EXCLUSIVE] Sarvam API failed: {api_error}")
+
+        # If both Sarvam methods failed, check for network errors and suggest fallback
+        error_msg = (
+            f"Sarvam extraction failed. "
+            f"Please check: 1) Network connectivity 2) API key validity 3) File quality"
+        )
+        raise RuntimeError(error_msg)
+
+    def _extract_sarvam(self, image_path: str, detail: bool, language: str = None) -> Union[str, List[dict]]:
+        """
+        Cloud OCR with Intelligent Fallback Chain (with language support):
+        1. Sarvam SDK Direct (BEST for handwritten text) ↓
+        2. Google Vision API ↓
+        3. OCR.space Free API ↓
+        4. Sarvam API REST (backup) ↓
+        5. EasyOCR (local, always works)
+        
+        NOTE: Only uses Sarvam if explicitly configured with valid API key.
+        Falls back to other engines if Sarvam is unavailable.
+        """
+        start = time.time()
+        
+        logger.info(f"[OCR Fallback Chain] Starting OCR for: {image_path}")
+        
+        # Auto-detect language if not provided
+        if language is None:
+            language = self._detect_language_from_path(image_path)
+
+        # Try 1: Sarvam SDK Direct (BEST for handwritten text and multi-page PDFs)
+        if self._sarvam_api_key:
+            logger.info("[OCR Fallback Chain] [1/5] Trying Sarvam SDK Direct (best for handwritten text)...")
+            result = self._extract_sarvam_sdk_direct(image_path, detail, language=language)
+            elapsed = time.time() - start
+            if result and (len(result) > 50 if isinstance(result, str) else len(result) > 0):
+                logger.info(f"[OCR Fallback Chain] ✓ Sarvam SDK succeeded ({len(result)} chars in {elapsed:.1f}s)")
+                return self._postprocess_ocr(result) if not detail else result
+            else:
+                logger.warning("[OCR Fallback Chain] Sarvam SDK failed or returned empty result")
+        else:
+            logger.info("[OCR Fallback Chain] [1/5] Sarvam not configured - skipping SDK")
+
+        # Try 2: Google Vision API
+        logger.info("[OCR Fallback Chain] [2/5] Trying Google Vision API...")
         result = self._extract_google_vision(image_path, detail)
+        elapsed = time.time() - start
         if result and len(result) > 50:
-            elapsed = time.time() - start
-            logger.info(f"Google Vision: {len(result)} chars in {elapsed:.1f}s")
+            logger.info(f"[OCR Fallback Chain] ✓ Google Vision succeeded ({len(result)} chars in {elapsed:.1f}s)")
             return self._postprocess_ocr(result) if not detail else result
 
+        # Try 3: OCR.space
+        logger.info("[OCR Fallback Chain] [3/5] Trying OCR.space API...")
         result = self._extract_ocrspace(image_path, detail)
+        elapsed = time.time() - start
         if result and len(result) > 50:
-            elapsed = time.time() - start
-            logger.info(f"OCR.space: {len(result)} chars in {elapsed:.1f}s")
+            logger.info(f"[OCR Fallback Chain] ✓ OCR.space succeeded ({len(result)} chars in {elapsed:.1f}s)")
             return self._postprocess_ocr(result) if not detail else result
 
-        result = self._extract_sarvam_via_pdf(image_path, detail)
-        if result and len(result) > 50:
+        # Try 4: Sarvam API REST (fallback if SDK fails)
+        if self._sarvam_api_key and self._sarvam_api_url:
+            logger.info("[OCR Fallback Chain] [4/5] Trying Sarvam API REST (fallback)...")
+            result = self._extract_sarvam_api_direct(image_path, detail, language=language)
             elapsed = time.time() - start
-            logger.info(f"Sarvam SDK: {len(result)} chars in {elapsed:.1f}s")
-            return self._postprocess_ocr(result) if not detail else result
+            if result and (len(result) > 50 if isinstance(result, str) else len(result) > 0):
+                logger.info(f"[OCR Fallback Chain] ✓ Sarvam API succeeded ({len(result)} chars in {elapsed:.1f}s)")
+                return self._postprocess_ocr(result) if not detail else result
+            else:
+                logger.warning("[OCR Fallback Chain] Sarvam API REST failed or returned empty result")
+        else:
+            logger.info("[OCR Fallback Chain] [4/5] Sarvam API URL not configured - skipping")
 
-        logger.warning("All cloud APIs failed, falling back to EasyOCR")
+        # Try 5: Fallback to local EasyOCR (always works)
+        logger.warning("[OCR Fallback Chain] [5/5] All cloud APIs failed. Falling back to EasyOCR")
         return self._fallback_easyocr(image_path, detail)
 
     def _extract_google_vision(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
@@ -1777,41 +2246,127 @@ class OCRService:
             logger.warning(f"OCR.space request: {e}")
         return ""
 
-    def _extract_sarvam_via_pdf(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
-        """Sarvam AI via PDF conversion."""
+    def _extract_sarvam_via_pdf(self, image_path: str, detail: bool, language: str = None) -> Union[str, List[dict]]:
+        """
+        Sarvam AI via PDF conversion.
+        
+        Args:
+            image_path: Path to image file
+            detail: Whether to return detailed results
+            language: Language code (e.g., 'en', 'hi'). Defaults to 'en'.
+        """
         try:
             from sarvamai import SarvamAI
             from PIL import Image
+            import gc
+            
+            if language is None:
+                language = 'en'
+            
+            # Map 2-letter code to Sarvam language tag (usually with regional variant)
+            language_map = {
+                'en': 'en-IN',
+                'hi': 'hi-IN',
+                'ta': 'ta-IN',
+                'te': 'te-IN',
+                'kn': 'kn-IN',
+                'ml': 'ml-IN',
+                'mr': 'mr-IN',
+                'gu': 'gu-IN',
+                'pa': 'pa-IN',
+                'bn': 'bn-IN',
+                'or': 'or-IN',
+                'ur': 'ur-IN',
+                'es': 'es',
+                'fr': 'fr',
+                'de': 'de',
+                'pt': 'pt',
+                'it': 'it',
+                'ja': 'ja',
+                'zh': 'zh',
+                'ar': 'ar',
+                'ru': 'ru',
+            }
+            
+            sarvam_language = language_map.get(language, 'en-IN')
+            logger.info(f"[Sarvam PDF SDK] Using language: {sarvam_language} (user language: {language})")
+            
             with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tf:
                 pdf_path = tf.name
-            img = Image.open(image_path)
-            if img.mode == 'RGBA':
-                img = img.convert('RGB')
-            img.save(pdf_path, 'PDF', resolution=300)
-            client = SarvamAI(api_subscription_key=self._sarvam_api_key)
-            job = client.document_intelligence.create_job(language="en-IN", output_format="md")
-            job.upload_file(pdf_path)
-            job.start()
-            job.wait_until_complete()
-            text = ""
-            with tempfile.TemporaryDirectory() as td:
-                out = os.path.join(td, "output")
-                job.download_output(out)
-                for ext in ['.md', '.txt', '']:
-                    fp = out + ext
-                    if os.path.exists(fp):
-                        with open(fp, 'r', encoding='utf-8') as f:
-                            text = f.read()
-                        break
+            
             try:
-                os.remove(pdf_path)
-            except:
-                pass
-            if detail:
-                return [{'text': text, 'confidence': 1.0, 'engine': 'sarvam_sdk'}]
-            return text.strip()
+                img = Image.open(image_path)
+                if img.mode == 'RGBA':
+                    img = img.convert('RGB')
+                img.save(pdf_path, 'PDF', resolution=300)
+                del img  # Explicitly delete image object
+                gc.collect()
+                
+                try:
+                    client = SarvamAI(api_subscription_key=self._sarvam_api_key)
+                    job = client.document_intelligence.create_job(language=sarvam_language, output_format="md")
+                    job.upload_file(pdf_path)
+                    job.start()
+                    job.wait_until_complete()
+                    
+                    text = ""
+                    with tempfile.TemporaryDirectory() as td:
+                        # Download output (will be a ZIP file)
+                        zip_path = os.path.join(td, "output.zip")
+                        job.download_output(zip_path)
+                        logger.debug(f"[Sarvam PDF SDK] Downloaded output to {zip_path}")
+                        
+                        # Extract and read the ZIP
+                        if os.path.exists(zip_path):
+                            import zipfile
+                            extract_dir = os.path.join(td, "extracted")
+                            os.makedirs(extract_dir, exist_ok=True)
+                            
+                            try:
+                                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                                    zip_ref.extractall(extract_dir)
+                                logger.debug(f"[Sarvam PDF SDK] Extracted ZIP to {extract_dir}")
+                                
+                                # Look for the main document file
+                                for ext in ['document.md', '.md', '.txt', '.html', '']:
+                                    for root, dirs, files in os.walk(extract_dir):
+                                        for file in files:
+                                            file_path = os.path.join(root, file)
+                                            if ext and (file == ext or file.endswith(ext)):
+                                                try:
+                                                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                                        content = f.read().strip()
+                                                        if content and not content.startswith('PK'):
+                                                            text = content
+                                                            logger.debug(f"[Sarvam PDF SDK] Read {len(text)} chars from {file}")
+                                                            break
+                                                except:
+                                                    pass
+                                        if text:
+                                            break
+                                    if text:
+                                        break
+                            except zipfile.BadZipFile:
+                                logger.warning("[Sarvam PDF SDK] ZIP file is corrupted")
+                    
+                    logger.info(f"[Sarvam PDF SDK] SUCCESS - Extracted {len(text)} characters in language={sarvam_language}")
+                    # Strip HTML tags from extracted text
+                    text = self._strip_html(text)
+                    if detail:
+                        return [{'text': text, 'confidence': 1.0, 'engine': 'sarvam_sdk', 'language': sarvam_language}]
+                    return text.strip()
+                
+                except Exception as sarvam_err:
+                    logger.warning(f"Sarvam PDF processing: {sarvam_err}")
+                    return "" if not detail else []
+            
+            finally:
+                # Cleanup temporary PDF with safe deletion
+                self._safe_delete_file(pdf_path)
+        
         except Exception as e:
-            logger.warning(f"Sarvam PDF: {e}")
+            logger.warning(f"Sarvam PDF extraction: {e}")
+        
         return "" if not detail else []
 
     def _fallback_easyocr(self, image_path: str, detail: bool) -> Union[str, List[dict]]:
@@ -1829,67 +2384,230 @@ class OCRService:
 
     # ==================== PDF Extraction ====================
 
-    def _extract_from_pdf(self, pdf_path: str, preprocess: bool, detail: bool) -> Union[str, List[dict]]:
-        """Extract text from PDF (embedded text or OCR on rendered pages)."""
+    def _extract_from_pdf(self, pdf_path: str, preprocess: bool, detail: bool, language: str = None) -> Union[str, List[dict]]:
+        """
+        Extract text from PDF (embedded text or OCR on rendered pages).
+        Supports multilingual extraction with complete page processing.
+        
+        Args:
+            pdf_path: Path to PDF file
+            preprocess: Whether to apply preprocessing (for local engines)
+            detail: Whether to return detailed results with confidence scores
+            language: Language code (e.g., 'en', 'hi', 'ta'). Auto-detected if None.
+        """
         try:
             import fitz
+            import gc
+            from io import BytesIO
+            
+            # Detect language from filename if not provided
+            if language is None:
+                language = self._detect_language_from_path(pdf_path) if hasattr(self, '_detect_language_from_path') else 'en'
+            
             doc = fitz.open(pdf_path)
+            total_pages = len(doc)
             all_text, all_detail = [], []
             
-            for i in range(len(doc)):
-                page = doc.load_page(i)
-                embedded = page.get_text().strip()
-                
-                if embedded and len(embedded) > 50:
-                    if detail:
-                        all_detail.append({"text": embedded, "confidence": 1.0,
-                                           "page": i + 1})
-                    else:
-                        all_text.append(embedded)
-                else:
-                    mat = fitz.Matrix(2.0, 2.0)
-                    pix = page.get_pixmap(matrix=mat)
-                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                        pix.save(tmp.name)
-                        if self.engine_name == "sarvam":
-                            result = self._extract_sarvam(tmp.name, detail)
-                        elif self.engine_name == "ensemble":
-                            result = self._extract_ensemble(tmp.name, preprocess, detail)
-                        else:
-                            result = self._extract_single_engine(tmp.name, preprocess, detail)
-                        
-                        if detail and isinstance(result, list):
-                            for item in result:
-                                item['page'] = i + 1
-                            all_detail.extend(result)
-                        else:
-                            all_text.append(result if result else "")
-                        try:
-                            os.remove(tmp.name)
-                        except:
-                            pass
+            logger.info(f"[PDF Extraction] Processing {total_pages} pages with language={language}")
             
-            doc.close()
+            try:
+                for i in range(total_pages):
+                    page = doc.load_page(i)
+                    embedded = page.get_text().strip()
+                    
+                    if embedded and len(embedded) > 50:
+                        # Page has extractable text
+                        logger.debug(f"[PDF Page {i+1}/{total_pages}] Found embedded text ({len(embedded)} chars)")
+                        if detail:
+                            all_detail.append({"text": embedded, "confidence": 1.0,
+                                               "page": i + 1, "source": "embedded"})
+                        else:
+                            all_text.append(embedded)
+                    else:
+                        # Need OCR - render to PNG in memory
+                        logger.debug(f"[PDF Page {i+1}/{total_pages}] No embedded text, rendering for OCR...")
+                        result = None
+                        try:
+                            # Render page to pixmap (image in memory)
+                            mat = fitz.Matrix(2.0, 2.0)
+                            pix = page.get_pixmap(matrix=mat)
+                            
+                            # Save pixmap to bytes (in-memory PNG)
+                            png_bytes = pix.tobytes("png")
+                            
+                            # Create in-memory file-like object
+                            img_buffer = BytesIO(png_bytes)
+                            
+                            # Delete pixmap to free memory
+                            del pix
+                            gc.collect()
+                            
+                            # Save PNG to a very temporary location, process, and delete immediately
+                            import uuid
+                            temp_name = f"ocr_tmp_{uuid.uuid4().hex}.png"
+                            temp_path = os.path.join(tempfile.gettempdir(), temp_name)
+                            
+                            try:
+                                # Write bytes to disk
+                                with open(temp_path, 'wb') as tf:
+                                    tf.write(png_bytes)
+                                
+                                # Immediately close and process
+                                logger.debug(f"[PDF Page {i+1}/{total_pages}] Calling {self.engine_name} for OCR...")
+                                if self.engine_name == "sarvam":
+                                    result = self._extract_sarvam_exclusive(temp_path, detail, language=language)
+                                elif self.engine_name == "ensemble":
+                                    result = self._extract_ensemble(temp_path, preprocess, detail)
+                                else:
+                                    result = self._extract_single_engine(temp_path, preprocess, detail)
+                                
+                                if result and len(str(result)) > 20:
+                                    logger.debug(f"[PDF Page {i+1}/{total_pages}] ✓ OCR extracted {len(str(result)) if isinstance(result, str) else len(str(result[0].get('text', '')))} chars")
+                                else:
+                                    logger.debug(f"[PDF Page {i+1}/{total_pages}] ⚠️  OCR returned minimal text")
+                            
+                            finally:
+                                # Aggressive cleanup - force delete even if locked
+                                if os.path.exists(temp_path):
+                                    try:
+                                        import stat
+                                        # Try to make file writable first (in case it's read-only)
+                                        os.chmod(temp_path, stat.S_IWRITE | stat.S_IREAD)
+                                        os.remove(temp_path)
+                                        logger.debug(f"[PDF Page {i+1}] Cleaned temporary OCR image")
+                                    except PermissionError:
+                                        # Couldn't delete, but that's OK - continue anyway
+                                        logger.debug(f"[PDF Page {i+1}] Temp file will be cleaned by OS")
+                                    except Exception as e:
+                                        logger.debug(f"[PDF Page {i+1}] Temp cleanup warning: {e}")
+                            
+                            if detail and isinstance(result, list):
+                                for item in result:
+                                    item['page'] = i + 1
+                                    item['language'] = language
+                                all_detail.extend(result)
+                            else:
+                                all_text.append(result if result else "")
+                        
+                        except Exception as ocr_err:
+                            logger.warning(f"[PDF Page {i+1}/{total_pages}] OCR extraction failed: {ocr_err}")
+                            all_text.append("")  # Add empty string for failed page
+            
+            finally:
+                # Close document
+                try:
+                    doc.close()
+                    del doc
+                except:
+                    pass
+                
+                gc.collect()  # Final garbage collection
+            
+            # Log completion
+            total_chars = sum(len(str(t)) for t in all_text)
+            logger.info(f"[PDF Extraction] Complete! Processed {total_pages} pages, extracted {total_chars} chars")
+            
             return all_detail if detail else "\n\n".join(all_text)
+        
         except ImportError:
             raise RuntimeError("PyMuPDF required for PDF. Install: pip install pymupdf")
         except Exception as e:
+            logger.error(f"PDF extraction error: {type(e).__name__}: {e}")
             raise RuntimeError(f"PDF extraction failed: {e}")
 
     # ==================== Post-Processing ====================
+
+    def _similarity_ratio(self, a: str, b: str) -> float:
+        """Calculate similarity ratio between two strings (0-1)."""
+        if not a or not b:
+            return 0.0
+        # Simple Levenshtein-like similarity
+        matcher = difflib.SequenceMatcher(None, a.lower(), b.lower())
+        return matcher.ratio()
 
     def _postprocess_ocr(self, text: str) -> str:
         """Fix common OCR errors in handwritten text."""
         if not text:
             return text
 
+        # Step 1: Strip HTML tags and entities (for model answers with tables, etc.)
+        text = self._strip_html(text)
+
         # Structural cleanup
         text = re.sub(r'[ \t]+', ' ', text)
         text = re.sub(r'(?m)^\s*[^a-zA-Z0-9\s]\s*$', '', text)
         text = re.sub(r'\n{3,}', '\n\n', text)
 
-        # Word corrections (common handwriting OCR errors)
+        # Step 2: Normalize numbering format (1., 1>, 1) all become "1.")
+        # Handle lines starting with various numbering formats
+        text = re.sub(r'^(\d+)\s*[>)]?\s*(?=[A-Za-z])', r'\1) ', text, flags=re.MULTILINE)
+        
+        # Step 3: Fix line breaks for numbered lists (join broken lines)
+        # Join lines that are broken in the middle of content
+        lines = text.split('\n')
+        fixed_lines = []
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Check if next line is a continuation (doesn't start with number/special marker)
+            while i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                # If next line doesn't start with numbering and current line doesn't end with punctuation
+                if (next_line and 
+                    not re.match(r'^(\d+[.\>)]|[a-z]\)|\*|\-|•)', next_line) and
+                    line and 
+                    not line.endswith(('.', '!', '?', ':')) and
+                    len(line.split()) > 2):  # Not a short line
+                    line = line + ' ' + next_line
+                    i += 1
+                else:
+                    break
+            
+            if line:
+                fixed_lines.append(line)
+            i += 1
+        
+        text = '\n'.join(fixed_lines)
+
+        # Step 4: Word corrections (common handwriting OCR errors)
         corrections = {
+            # Technical/NLP terms
+            r'\btranelate\b': 'translate',
+            r'\bconversijm\b': 'conversion',
+            r'\bDejection\b': 'Detection',
+            r'\bdetection\b': 'detection',
+            r'\bAnalytic\b': 'Analysis',
+            r'\bAnalyze\b': 'Analysis',
+            r'\banalysts\b': 'analysis',
+            r'\bdictionarice\b': 'dictionaries',
+            r'\bcopora\b': 'corpora',
+            r'\bcorpora\b': 'corpora',
+            r'\btraine\b': 'trained',
+            r'\btraning\b': 'training',
+            r'\blanuage\b': 'language',
+            r'\blang\b': 'language',
+            r'\bsentimental\b': 'sentiment',
+            r'\bNIP\b': 'NLP',
+            r'\bsentiment\s+analyzers?\b': 'sentiment analyzer',
+            r'\btext\s+expreses?\b': 'text expresses',
+            r'\bthe\s+test\b': 'the text',
+            r'\bexpress\b': 'express',
+            r'\bepress\b': 'express',
+            r'\bfeature\s+extraction\b': 'feature extraction',
+            r'\bfeature\s+extration\b': 'feature extraction',
+            r'\bsentence\s+segregation\b': 'sentence segmentation',
+            r'\bpolarity\b': 'polarity',
+            r'\bsubjectivity\b': 'subjectivity',
+            r'\bsubjectivty\b': 'subjectivity',
+            r'\bemotion\b': 'emotion',
+            r'\bemotions\b': 'emotions',
+            r'\baspect\s*-?\s*based\b': 'aspect-based',
+            r'\bintent\s*-?\s*based\b': 'intent-based',
+            r'\bsentiment\s+classification\b': 'sentiment classification',
+            r'\bword\s*-?\s*by\s*-?\s*word\b': 'word-by-word',
+            r'\bmachine\s+translation\b': 'machine translation',
+            # Other common errors
             r'\bOrakriti\b': 'Prakriti',
             r'\bPrakrit\b': 'Prakriti',
             r'\b([Ss])ohoo\b': r'\1chool',
@@ -1951,7 +2669,52 @@ class OCRService:
         for pat, repl in corrections.items():
             text = re.sub(pat, repl, text, flags=re.IGNORECASE)
 
+        # Step 5: Remove duplicate numbered sections
+        # Remove lines that are obvious duplicates or page artifacts
+        lines = text.split('\n')
+        seen_content = {}
+        clean_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                clean_lines.append('')
+                continue
+            
+            # Extract the core content (without numbers)
+            core = re.sub(r'^(\d+[.\>)]\s*|\*|-|•)', '', stripped).strip()
+            
+            if core and len(core) > 5:  # Meaningful content
+                # Check if we've seen very similar content recently
+                is_duplicate = False
+                for recent_core in list(seen_content.keys())[-3:]:  # Check last 3 lines
+                    if recent_core and self._similarity_ratio(core, recent_core) > 0.8:
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate:
+                    clean_lines.append(stripped)
+                    seen_content[core] = True
+                    # Keep only last 10 for memory efficiency
+                    if len(seen_content) > 10:
+                        seen_content.pop(next(iter(seen_content)))
+            else:
+                clean_lines.append(stripped)
+        
+        text = '\n'.join(clean_lines)
+
+        # Final cleanup
+        text = re.sub(r'\n{2,}', '\n', text)  # Remove extra blank lines
         return text.strip()
+
+    def _safe_delete_file(self, path: str):
+        """Safely delete a file with error handling."""
+        try:
+            if path and os.path.exists(path):
+                os.remove(path)
+                logger.debug(f"Deleted temporary file: {path}")
+        except Exception as e:
+            logger.debug(f"Could not delete temporary file {path}: {e}")
 
     # ==================== Utility / Backward Compat ====================
 

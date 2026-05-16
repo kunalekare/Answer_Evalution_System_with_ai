@@ -7,6 +7,8 @@ This is the main entry point for the FastAPI backend.
 It handles all API routes, middleware configuration, and application lifecycle.
 """
 
+print("[DEBUG] ======= API/main.py LOADING START =======", flush=True)
+
 import os
 import json
 import logging
@@ -20,24 +22,44 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+print("[DEBUG] 1. Standard imports OK", flush=True)
+
 # Import configuration
 from config.settings import settings, setup_directories
+
+print("[DEBUG] 2. Settings imported OK", flush=True)
 
 # Import routers
 from api.routes import upload, evaluation, results
 from api.routes import auth, admin, teachers, students
-from api.routes import community, grievance
+from api.routes import community, grievance, dashboard, oauth
+
+print("[DEBUG] 3. Routes imported OK", flush=True)
 
 # Import auth service for default admin creation
 from api.services.auth_service import create_default_admin
+
+print("[DEBUG] 4. Services imported OK", flush=True)
+
+# ========== UTF-8 Encoding Fix for Windows ==========
+import sys
+import io
+
+# Fix Unicode encoding for Windows console (cp1252 by default)
+if sys.platform == 'win32' and sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except Exception as e:
+        print(f"[WARNING] Could not set UTF-8 encoding: {e}", flush=True)
 
 # ========== Logging Configuration ==========
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(settings.LOG_FILE, mode='a')
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(settings.LOG_FILE, mode='a', encoding='utf-8')
     ]
 )
 logger = logging.getLogger("AssessIQ")
@@ -72,9 +94,10 @@ async def lifespan(app: FastAPI):
     # Create demo teacher and student accounts (for testing)
     from api.services.auth_service import create_demo_teacher, create_demo_student
     try:
-        create_demo_teacher()
-        create_demo_student()
-        logger.info("[OK] Demo accounts checked/created")
+        # Disabled for faster startup
+        # create_demo_teacher()
+        # create_demo_student()
+        logger.info("[OK] Demo accounts creation disabled for faster startup")
     except Exception as e:
         logger.warning(f"[WARN] Could not create demo accounts: {e}")
     
@@ -95,6 +118,9 @@ async def lifespan(app: FastAPI):
 # ========== Custom JSON Response (handles numpy types) ==========
 def _numpy_default(obj: Any) -> Any:
     """JSON serializer for numpy types not handled by the stdlib encoder."""
+    from datetime import datetime, date
+    from decimal import Decimal
+    
     if isinstance(obj, np.bool_):
         return bool(obj)
     if isinstance(obj, np.integer):
@@ -107,19 +133,38 @@ def _numpy_default(obj: Any) -> Any:
         return str(obj)
     if isinstance(obj, bytes):
         return obj.decode("utf-8", errors="replace")
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if hasattr(obj, '__dict__'):
+        # Handle objects with __dict__ (like BaseModel instances)
+        return obj.__dict__
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 class NumpyJSONResponse(JSONResponse):
     """JSONResponse subclass that gracefully serialises numpy scalar/array types."""
     def render(self, content: Any) -> bytes:
-        return json.dumps(
-            content,
-            allow_nan=False,
-            indent=None,
-            separators=(",", ":"),
-            default=_numpy_default,
-        ).encode("utf-8")
+        try:
+            result = json.dumps(
+                content,
+                allow_nan=False,
+                indent=None,
+                separators=(",", ":"),
+                default=_numpy_default,
+                ensure_ascii=False,
+            )
+            return result.encode("utf-8")
+        except Exception as e:
+            logger.error(f"JSON serialization error: {e}", exc_info=True)
+            # Fallback: Return error response
+            error_response = {
+                "error": "JSON serialization failed",
+                "details": str(e),
+                "type": type(e).__name__
+            }
+            return json.dumps(error_response, default=str).encode("utf-8")
 
 
 # ========== FastAPI Application ==========
@@ -145,6 +190,19 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+# ========== Upload Size Configuration ==========
+# Starlette has a default max body size of 16MB
+# We override it to allow uploads up to MAX_FILE_SIZE
+# This must be done before the request logging middleware
+import sys
+if hasattr(sys, 'setrecursionlimit'):
+    # For large uploads, we might need stream handling
+    pass
+
+# The upload validation happens in the route handler
+# which checks against settings.MAX_FILE_SIZE
 
 
 # ========== Request Logging Middleware ==========
@@ -207,17 +265,21 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 # ========== Include Routers ==========
+print("[DEBUG] 5. About to register routes", flush=True)
+
 app.include_router(
     upload.router,
     prefix=f"{settings.API_PREFIX}/upload",
     tags=["Upload"]
 )
+print("[DEBUG] 5a. Upload route registered", flush=True)
 
 app.include_router(
     evaluation.router,
     prefix=f"{settings.API_PREFIX}/evaluate",
     tags=["Evaluation"]
 )
+print("[DEBUG] 5b. Evaluation route registered", flush=True)
 
 app.include_router(
     results.router,
@@ -261,6 +323,20 @@ app.include_router(
     grievance.router,
     prefix=f"{settings.API_PREFIX}/grievance",
     tags=["Grievance"]
+)
+
+# ========== Dashboard Router ==========
+app.include_router(
+    dashboard.router,
+    prefix=f"{settings.API_PREFIX}/dashboard",
+    tags=["Dashboard"]
+)
+
+# ========== OAuth Router ==========
+app.include_router(
+    oauth.router,
+    prefix=f"{settings.API_PREFIX}/auth",
+    tags=["OAuth Authentication"]
 )
 
 

@@ -15,10 +15,13 @@ from typing import Optional, List, Dict, Any
 from enum import Enum
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, BackgroundTasks, File, UploadFile
+from fastapi import APIRouter, HTTPException, BackgroundTasks, File, UploadFile, Depends
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy.orm import Session
 
 from config.settings import settings
+from database.models import get_db, Evaluation, GradeLevel, QuestionType as DBQuestionType
+from api.services.auth_service import get_current_user, get_optional_user
 
 router = APIRouter()
 logger = logging.getLogger("AssessIQ.Evaluation")
@@ -57,6 +60,7 @@ class EvaluationRequest(BaseModel):
     question_type: QuestionType = Field(default=QuestionType.DESCRIPTIVE)
     max_marks: int = Field(default=10, ge=1, le=100)
     include_diagram: bool = Field(default=False)
+    multi_question_mode: bool = Field(default=False, description="Enable per-question evaluation (question-wise mode)")
     custom_keywords: Optional[List[str]] = Field(default=None)
     ocr_engine: OCREngine = Field(
         default=OCREngine.EASYOCR,
@@ -237,6 +241,10 @@ class MultiQuestionResult(BaseModel):
     overall_percentage: float
     overall_grade: GradeLevel
     per_question: List[PerQuestionResult]
+    explanation: str = Field(default="", description="Overall evaluation summary")
+    suggestions: List[str] = Field(default_factory=list, description="Aggregated improvement suggestions")
+    score_breakdown: Optional[Dict[str, Any]] = Field(default=None, description="Optional aggregated score breakdown")
+    concepts: Optional[Dict[str, Any]] = Field(default=None, description="Optional aggregated concept analysis")
     segmentation_info: Optional[Dict[str, Any]] = None
     processing_time: float
     timestamp: str
@@ -372,8 +380,103 @@ def generate_suggestions(
 
 
 # ========== API Endpoints ==========
+@router.post("/multi", response_model=MultiQuestionResult)
+async def evaluate_answer_multi_question(
+    request: EvaluationRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_optional_user)
+):
+    """
+    Evaluate student answer in **question-wise mode** using uploaded files.
+    
+    This endpoint segments the answer into individual questions and evaluates each separately.
+    
+    **Parameters:**
+    - evaluation_id: ID from upload response
+    - max_marks: Total marks for the answer sheet
+    - Other parameters same as single-question endpoint
+    
+    **Returns:** MultiQuestionResult with per-question breakdown
+    """
+    import time
+    start_time = time.time()
+    
+    logger.info(f"🔄 [MULTI-QUESTION MODE] Starting question-wise evaluation...")
+    
+    # ============ PHASE 1: Upload Validation ============
+    logger.info(f"[Phase 1/5] 📋 Upload Validation - Checking evaluation files...")
+    
+    eval_dir = os.path.join(settings.UPLOAD_DIR, "evaluations", request.evaluation_id)
+    if not os.path.exists(eval_dir):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Evaluation {request.evaluation_id} not found. Please upload files first."
+        )
+    
+    logger.info(f"[Phase 1/5] ✓ Evaluation directory found: {request.evaluation_id}")
+    
+    # ============ PHASE 2: Load cached text ============
+    logger.info(f"[Phase 2/5] 📂 Loading cached text...")
+    cache_dir = os.path.join(eval_dir, ".cache")
+    student_cache = os.path.join(cache_dir, "student_extracted.txt")
+    model_cache = os.path.join(cache_dir, "model_extracted.txt")
+    
+    if not os.path.exists(model_cache) or not os.path.exists(student_cache):
+        logger.warning(f"Missing cached text files")
+        raise HTTPException(status_code=400, detail="Cached text not found. Please re-upload files.")
+    
+    try:
+        with open(model_cache, 'r', encoding='utf-8') as f:
+            model_text = f.read().strip()
+        with open(student_cache, 'r', encoding='utf-8') as f:
+            student_text = f.read().strip()
+        logger.info(f"[Phase 2/5] ✓ Loaded: model={len(model_text)} chars, student={len(student_text)} chars")
+    except Exception as e:
+        logger.error(f"Error reading cached files: {e}")
+        raise HTTPException(status_code=500, detail=f"Error reading cached text: {str(e)}")
+    
+    if not model_text or not student_text:
+        raise HTTPException(status_code=400, detail="Cached text is empty. Please re-upload files.")
+    
+    # ============ PHASE 3: Create evaluation request ============
+    logger.info(f"[Phase 3/5] 📋 Creating multi-question request...")
+    try:
+        multi_request = MultiQuestionRequest(
+            model_answer=model_text,
+            student_answer=student_text,
+            question_type=request.question_type,
+            total_max_marks=request.max_marks,
+            rubric_config=request.rubric_config
+        )
+        logger.info(f"[Phase 3/5] ✓ Request created successfully")
+    except Exception as e:
+        logger.error(f"Error creating multi-question request: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid parameters: {str(e)}")
+    
+    # ============ PHASE 4: Run evaluation ============
+    logger.info(f"[Phase 4/5] 🔄 Starting evaluation (this may take 2-3 minutes)...")
+    try:
+        result = await evaluate_multi_question(multi_request)
+        logger.info(f"[Phase 4/5] ✓ Evaluation completed successfully")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Evaluation failed: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)[:200]}")
+    
+    # ============ PHASE 5: Return result ============
+    logger.info(f"[Phase 5/5] ✅ Returning results to client...")
+    logger.info(f"Processing time: {time.time() - start_time:.2f}s")
+    
+    return result
+
+
 @router.post("/", response_model=EvaluationResult)
-async def evaluate_answer(request: EvaluationRequest):
+async def evaluate_answer(
+    request: EvaluationRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_optional_user)
+):
     """
     Evaluate student answer against model answer using uploaded files.
     
@@ -386,10 +489,15 @@ async def evaluate_answer(request: EvaluationRequest):
     6. Diagram: Compare diagrams if present
     7. Score: Apply hybrid scoring formula
     8. Return detailed results
+    
+    **Note:** For question-wise evaluation, use POST /multi instead
     """
     
     import time
     start_time = time.time()
+    
+    # ============ PHASE 1: Upload Validation ============
+    logger.info(f"[Phase 1/17] 📋 Upload Validation - Checking evaluation files...")
     
     # Verify evaluation exists
     eval_dir = os.path.join(settings.UPLOAD_DIR, "evaluations", request.evaluation_id)
@@ -399,25 +507,58 @@ async def evaluate_answer(request: EvaluationRequest):
             detail=f"Evaluation {request.evaluation_id} not found. Please upload files first."
         )
     
+    logger.info(f"[Phase 1/17] ✓ Evaluation directory found: {request.evaluation_id}")
+    
     try:
+        # ============ PHASE 2: File Evaluation Initiation ============
+        logger.info(f"[Phase 2/17] 🔍 File Detection - Scanning uploaded files...")
+        
         # Import services
         from api.services.ocr_service import OCRService
         from api.services.nlp_service import NLPPreprocessor
         from api.services.semantic_service import SemanticAnalyzer
         from api.services.scoring_service import ScoringService
         
-        # Initialize services with user-selected OCR engine
-        ocr = OCRService(engine=request.ocr_engine.value)
-        nlp = NLPPreprocessor()
-        semantic = SemanticAnalyzer()
-        scorer = ScoringService()
-        
-        logger.info(f"Evaluation {request.evaluation_id} using OCR engine: {request.ocr_engine.value}")
-        
-        # Find files in evaluation directory
+        # Find files in evaluation directory to detect PDF
         files = os.listdir(eval_dir)
         model_file = next((f for f in files if f.startswith("model_")), None)
         student_file = next((f for f in files if f.startswith("student_") or f == "student_answer.txt"), None)
+        
+        logger.info(f"[Phase 2/17] ✓ Files detected: Model={model_file}, Student={student_file}")
+        
+        # ============ PHASE 3: File Detection & OCR Engine Selection ============
+        logger.info(f"[Phase 3/17] 🛠️ OCR Engine Selection - User choice: {request.ocr_engine.value}")
+        
+        # Check if files are PDFs
+        is_pdf = (model_file and model_file.lower().endswith('.pdf')) or \
+                 (student_file and student_file.lower().endswith('.pdf'))
+        
+        # Use user-selected engine (respects user choice)
+        ocr_engine = request.ocr_engine.value
+        
+        logger.info(f"[Phase 3/17] ✓ OCR Engine: '{ocr_engine}'")
+        if is_pdf:
+            if ocr_engine == "sarvam":
+                logger.info(f"[Phase 3/17] 📄 PDF + Sarvam: Will extract ALL pages for complete handwritten analysis")
+            else:
+                logger.info(f"[Phase 3/17] 📄 PDF + {ocr_engine}: Will process ALL pages with selected engine")
+        
+        # Initialize services
+        try:
+            logger.info(f"[Phase 3/17] 🛠️ Initializing {ocr_engine} OCR engine...")
+            ocr = OCRService(engine=ocr_engine)
+            logger.info(f"[Phase 3/17] ✓ {ocr_engine} engine initialized successfully")
+        except ValueError as e:
+            error_msg = str(e)
+            logger.error(f"[Phase 3/17] ✗ OCR engine initialization failed: {error_msg}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"OCR Engine '{ocr_engine}' not available: {error_msg}"
+            )
+        
+        nlp = NLPPreprocessor()
+        semantic = SemanticAnalyzer()
+        scorer = ScoringService()
         
         if not model_file or not student_file:
             raise HTTPException(
@@ -428,27 +569,113 @@ async def evaluate_answer(request: EvaluationRequest):
         model_path = os.path.join(eval_dir, model_file)
         student_path = os.path.join(eval_dir, student_file)
         
-        # Step 1: Extract text using OCR (or read directly if text file)
-        logger.info(f"Processing evaluation {request.evaluation_id}")
+        # ============ PHASE 4: Text Extraction (OCR) ============
+        logger.info(f"[Phase 4/17] 📖 OCR Extraction - Extracting text from files...")
         
-        if student_file.endswith('.txt'):
-            with open(student_path, 'r', encoding='utf-8') as f:
-                student_text = f.read()
-        else:
-            student_text = ocr.extract_text(student_path)
+        # Check for cached extracted text first (OPTIMIZATION: avoid re-extraction)
+        cache_dir = os.path.join(eval_dir, ".cache")
+        student_cache = os.path.join(cache_dir, "student_extracted.txt")
+        model_cache = os.path.join(cache_dir, "model_extracted.txt")
         
-        model_text = ocr.extract_text(model_path)
+        # Try to load student text from cache first
+        student_text = None
+        if os.path.exists(student_cache):
+            try:
+                with open(student_cache, 'r', encoding='utf-8') as f:
+                    student_text = f.read().strip()
+                    if student_text:
+                        logger.info(f"[Phase 4/17] ✓ Student text loaded from cache: {len(student_text)} chars (SKIPPED RE-EXTRACTION)")
+            except Exception as e:
+                logger.debug(f"[Phase 4/17] Could not load from cache: {e}")
+                student_text = None
         
-        logger.info(f"Extracted text - Model: {len(model_text)} chars, Student: {len(student_text)} chars")
+        # Try to load model text from cache first
+        model_text = None
+        if os.path.exists(model_cache):
+            try:
+                with open(model_cache, 'r', encoding='utf-8') as f:
+                    model_text = f.read().strip()
+                    if model_text:
+                        logger.info(f"[Phase 4/17] ✓ Model text loaded from cache: {len(model_text)} chars (SKIPPED RE-EXTRACTION)")
+            except Exception as e:
+                logger.debug(f"[Phase 4/17] Could not load from cache: {e}")
+                model_text = None
         
-        # Step 2: NLP Preprocessing
+        # Extract student text if not cached
+        if not student_text:
+            if student_file.endswith('.txt'):
+                with open(student_path, 'r', encoding='utf-8') as f:
+                    student_text = f.read()
+                    logger.info(f"[Phase 4/17] ✓ Student text file loaded: {len(student_text)} chars")
+            else:
+                # Extract language from filename if present (e.g., "student_hindi.png", "student_hindi.pdf")
+                if student_file.endswith('.pdf'):
+                    logger.info(f"[Phase 4/17] 📄 Extracting student PDF with {ocr_engine} - processing ALL pages...")
+                else:
+                    logger.info(f"[Phase 4/17] 🖼️  Extracting student image with {ocr_engine}...")
+                
+                student_text = ocr.extract_text(student_path, language=None)  # Auto-detect from filename
+                
+                if student_file.endswith('.pdf'):
+                    logger.info(f"[Phase 4/17] ✓ PDF extraction complete: {len(student_text)} chars")
+                else:
+                    logger.info(f"[Phase 4/17] ✓ Image extraction complete: {len(student_text)} chars")
+            
+            # Cache the extracted text for future use
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                with open(student_cache, 'w', encoding='utf-8') as f:
+                    f.write(student_text)
+                logger.debug(f"[Phase 4/17] Student text cached for future evaluations")
+            except Exception as e:
+                logger.debug(f"[Phase 4/17] Could not cache student text: {e}")
+        
+        # Extract model text if not cached
+        if not model_text:
+            model_file_ext = os.path.splitext(model_file)[1].lower()
+            if model_file_ext == '.pdf':
+                logger.info(f"[Phase 4/17] 📄 Extracting model PDF with {ocr_engine} - processing ALL pages...")
+            else:
+                logger.info(f"[Phase 4/17] 🖼️  Extracting model image with {ocr_engine}...")
+            
+            model_text = ocr.extract_text(model_path, language=None)  # Auto-detect from filename
+            
+            if model_file_ext == '.pdf':
+                logger.info(f"[Phase 4/17] ✓ PDF extraction complete: {len(model_text)} chars")
+            else:
+                logger.info(f"[Phase 4/17] ✓ Image extraction complete: {len(model_text)} chars")
+            
+            # Cache the extracted text for future use
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                with open(model_cache, 'w', encoding='utf-8') as f:
+                    f.write(model_text)
+                logger.debug(f"[Phase 4/17] Model text cached for future evaluations")
+            except Exception as e:
+                logger.debug(f"[Phase 4/17] Could not cache model text: {e}")
+        
+        # Validate extraction
+        if not model_text or len(model_text.strip()) < 5:
+            logger.warning(f"[Phase 4/17] ⚠️  Model text extraction resulted in very short text ({len(model_text)} chars)")
+        
+        if not student_text or len(student_text.strip()) < 5:
+            logger.warning(f"[Phase 4/17] ⚠️  Student text extraction resulted in very short text ({len(student_text)} chars)")
+        
+        logger.info(f"[Phase 4/17] 📊 Extraction Summary - Model: {len(model_text)} chars, Student: {len(student_text)} chars")
+
+        # ============ PHASE 5: Text Preprocessing ============
+        logger.info(f"[Phase 5/17] 🧹 NLP Preprocessing - Normalizing text...")
         model_normalized = nlp.normalize_text(model_text)
         student_normalized = nlp.normalize_text(student_text)
+        logger.info(f"[Phase 5/17] ✓ Text preprocessing complete")
         
-        # Step 3: Semantic Analysis
+        # ============ PHASE 6: Semantic Analysis ============
+        logger.info(f"[Phase 6/17] 🌐 Semantic Analysis - Calculating similarity score...")
         semantic_score = semantic.calculate_similarity(model_normalized, student_normalized)
+        logger.info(f"[Phase 6/17] ✓ Semantic Score: {semantic_score:.4f}")
         
-        # Step 4: Keyword Analysis
+        # ============ PHASE 7: Keyword Coverage Analysis ============
+        logger.info(f"[Phase 7/17] 🔑 Keyword Analysis - Extracting keywords...")
         model_keywords = nlp.extract_keywords(model_text)
         student_keywords = nlp.extract_keywords(student_text)
         
@@ -459,8 +686,10 @@ async def evaluate_answer(request: EvaluationRequest):
         keyword_score, matched, missing = scorer.calculate_keyword_coverage(
             model_keywords, student_keywords
         )
+        logger.info(f"[Phase 7/17] ✓ Keyword Coverage: {keyword_score:.4f} ({len(matched)}/{len(model_keywords)} matched)")
         
-        # Step 5: Concept Graph Analysis
+        # ============ PHASE 8: Concept Graph Analysis ============
+        logger.info(f"[Phase 8/17] 🔗 Concept Graph - Extracting propositions...")
         concept_graph_score = 0.0
         concept_graph_result = None
         if getattr(settings, 'ENABLE_CONCEPT_GRAPH', True):
@@ -469,14 +698,16 @@ async def evaluate_answer(request: EvaluationRequest):
                 cg_scorer = ConceptGraphScorer()
                 concept_graph_result = cg_scorer.score(model_text, student_text)
                 concept_graph_score = concept_graph_result.combined_score
-                logger.info(f"Concept graph score: {concept_graph_score:.4f}")
+                logger.info(f"[Phase 8/17] ✓ Concept Graph Score: {concept_graph_score:.4f}")
             except Exception as e:
-                logger.warning(f"Concept graph scoring failed: {e}")
+                logger.warning(f"[Phase 8/17] ⚠️  Concept graph scoring failed: {e}")
                 concept_graph_score = semantic_score  # fallback to semantic
         else:
+            logger.info(f"[Phase 8/17] ⏭️  Concept Graph disabled")
             concept_graph_score = semantic_score  # fallback
         
-        # Step 5b: Sentence Alignment Matrix Scoring
+        # ============ PHASE 9: Sentence Alignment Matrix ============
+        logger.info(f"[Phase 9/17] 📋 Sentence Alignment - Building alignment matrix...")
         sentence_alignment_score = 0.0
         sentence_alignment_result = None
         if getattr(settings, 'ENABLE_SENTENCE_ALIGNMENT', True):
@@ -488,14 +719,16 @@ async def evaluate_answer(request: EvaluationRequest):
                     custom_keywords=request.custom_keywords,
                 )
                 sentence_alignment_score = sentence_alignment_result.combined_score
-                logger.info(f"Sentence alignment score: {sentence_alignment_score:.4f}")
+                logger.info(f"[Phase 9/17] ✓ Sentence Alignment Score: {sentence_alignment_score:.4f}")
             except Exception as e:
-                logger.warning(f"Sentence alignment scoring failed: {e}")
+                logger.warning(f"[Phase 9/17] ⚠️  Sentence alignment scoring failed: {e}")
                 sentence_alignment_score = semantic_score  # fallback
         else:
+            logger.info(f"[Phase 9/17] ⏭️  Sentence Alignment disabled")
             sentence_alignment_score = semantic_score  # fallback
         
-        # Step 5c: Structural Analysis (logical structure evaluation)
+        # ============ PHASE 10: Structural Analysis ============
+        logger.info(f"[Phase 10/17] 🏗️ Structure Analysis - Analyzing document structure...")
         structural_score_val = 0.0
         structure_bonus = 0.0
         structural_report = None
@@ -506,11 +739,24 @@ async def evaluate_answer(request: EvaluationRequest):
                 structural_report = struct_analyzer.analyze(student_text)
                 structural_score_val = structural_report.structural_score
                 structure_bonus = structural_report.structure_bonus
-                logger.info(f"Structural score: {structural_score_val:.4f}, bonus: {structure_bonus:.4f}")
+                logger.info(f"[Phase 10/17] ✓ Structural Score: {structural_score_val:.4f}, Bonus: {structure_bonus:.4f}")
             except Exception as e:
-                logger.warning(f"Structural analysis failed: {e}")
+                logger.warning(f"[Phase 10/17] ⚠️  Structural analysis failed: {e}")
         
-        # Step 5d: Anti-Gaming Protection
+        # ============ PHASE 11: Bloom's Taxonomy Analysis ============
+        logger.info(f"[Phase 11/17] 🧠 Bloom's Taxonomy - Assessing cognitive level...")
+        bloom_report = None
+        if getattr(settings, 'ENABLE_BLOOM_TAXONOMY', True):
+            try:
+                from api.services.bloom_taxonomy_service import BloomTaxonomyAnalyzer
+                bloom_analyzer_svc = BloomTaxonomyAnalyzer()
+                bloom_report = bloom_analyzer_svc.analyze(student_text, model_text)
+                logger.info(f"[Phase 11/17] ✓ Bloom Level: {bloom_report.identified_level} ({bloom_report.confidence:.2%})")
+            except Exception as e:
+                logger.warning(f"[Phase 11/17] ⚠️  Bloom's taxonomy analysis failed: {e}")
+        
+        # ============ PHASE 12: Anti-Gaming Analysis ============
+        logger.info(f"[Phase 12/17] 🛡️ Anti-Gaming Protection - Detecting pattern anomalies...")
         gaming_penalty = 0.0
         gaming_report = None
         if getattr(settings, 'ENABLE_ANTI_GAMING', True):
@@ -526,19 +772,40 @@ async def evaluate_answer(request: EvaluationRequest):
                 )
                 gaming_penalty = gaming_report.total_penalty
                 if gaming_report.is_flagged:
-                    logger.warning(f"Anti-gaming FLAGGED: penalty={gaming_penalty:.4f}, flags={gaming_report.flags}")
+                    logger.warning(f"[Phase 12/17] ⚠️  GAMING FLAGGED: Penalty={gaming_penalty:.4f}, Flags={gaming_report.flags}")
                 else:
-                    logger.info(f"Anti-gaming penalty: {gaming_penalty:.4f}")
+                    logger.info(f"[Phase 12/17] ✓ Anti-Gaming Penalty: {gaming_penalty:.4f}")
             except Exception as e:
-                logger.warning(f"Anti-gaming analysis failed: {e}")
+                logger.warning(f"[Phase 12/17] ⚠️  Anti-gaming analysis failed: {e}")
+        
+        # ============ PHASE 13: Confidence Analysis ============
+        logger.info(f"[Phase 13/17] 📊 Confidence Index - Calculating reliability score...")
+        confidence_report = None
+        if getattr(settings, 'ENABLE_CONFIDENCE', True):
+            try:
+                from api.services.confidence_service import ConfidenceAnalyzer
+                conf_analyzer = ConfidenceAnalyzer()
+                confidence_report = conf_analyzer.analyze(
+                    student_text=student_text,
+                    model_text=model_text,
+                    semantic_score=semantic_score,
+                    keyword_score=keyword_score,
+                )
+                logger.info(f"[Phase 13/17] ✓ Confidence Score: {confidence_report.overall_confidence:.4f}")
+            except Exception as e:
+                logger.warning(f"[Phase 13/17] ⚠️  Confidence analysis failed: {e}")
         
         # Step 6: Diagram Analysis (if applicable)
         diagram_score = 0.0
         if request.include_diagram:
+            logger.info(f"[Phase 6/17] 🖼️ Diagram Analysis - Evaluating diagrams...")
             from api.services.diagram_service import DiagramEvaluator
             diagram_eval = DiagramEvaluator()
             # Look for diagram regions
             diagram_score = diagram_eval.evaluate(model_path, student_path)
+            logger.info(f"[Phase 6/17] ✓ Diagram Score: {diagram_score:.4f}")
+        else:
+            logger.info(f"[Phase 6/17] ⏭️  No diagram evaluation requested")
         
         # Step 7: Calculate length ratio and penalty
         length_ratio = len(student_text) / max(len(model_text), 1)
@@ -599,7 +866,8 @@ async def evaluate_answer(request: EvaluationRequest):
         weighted_score -= gaming_penalty
         weighted_score = max(0.0, min(1.0, weighted_score))
         
-        # Step 9: Rubric-Based Scoring (Professional Board-Exam style)
+        # ============ PHASE 14: Rubric-Based Scoring ============
+        logger.info(f"[Phase 14/17] 📋 Rubric Scoring - Professional evaluation against rubric...")
         rubric_report = None
         rubric_final_score = None
         if getattr(settings, 'ENABLE_RUBRIC_SCORING', True):
@@ -636,9 +904,19 @@ async def evaluate_answer(request: EvaluationRequest):
                 rubric_final_score = max(0.0, min(1.0, rubric_final_score))
                 # Rubric score becomes the authoritative score
                 weighted_score = rubric_final_score
-                logger.info(f"Rubric score: {rubric_report.rubric_score:.4f}, grade: {rubric_report.rubric_grade}")
+                logger.info(f"[Phase 14/17] ✓ Rubric Score: {rubric_report.rubric_score:.4f}, Grade: {rubric_report.rubric_grade}")
             except Exception as e:
-                logger.warning(f"Rubric scoring failed, using legacy weights: {e}")
+                logger.warning(f"[Phase 14/17] ⚠️  Rubric scoring failed: {e}")
+        
+        # ============ PHASE 15: Final Scoring & Grading ============
+        logger.info(f"[Phase 15/17] 🎯 Final Scoring - Computing final marks and grade...")
+        
+        # Calculate marks
+        obtained_marks = round(weighted_score * request.max_marks, 2)
+        
+        # Classify grade
+        grade = classify_grade(weighted_score)
+        logger.info(f"[Phase 15/17] ✓ Final Score: {weighted_score:.4f} ({obtained_marks}/{request.max_marks} marks, Grade: {grade})")
         
         # Step 10: Bloom's Taxonomy Cognitive-Level Evaluation
         bloom_result = None
@@ -842,6 +1120,9 @@ async def evaluate_answer(request: EvaluationRequest):
         # Calculate processing time
         processing_time = time.time() - start_time
         
+        # ============ PHASE 16: Result Generation ============
+        logger.info(f"[Phase 16/17] 📊 Result Generation - Compiling finalized report...")
+        
         # Prepare score breakdown
         score_breakdown = ScoreBreakdown(
             semantic_score=round(semantic_score, 4),
@@ -857,6 +1138,7 @@ async def evaluate_answer(request: EvaluationRequest):
             length_penalty=round(length_penalty, 4),
             weighted_score=round(weighted_score, 4)
         )
+        logger.info(f"[Phase 16/17] ✓ Score breakdown compiled")
         
         result = EvaluationResult(
             success=True,
@@ -873,6 +1155,60 @@ async def evaluate_answer(request: EvaluationRequest):
             timestamp=datetime.now().isoformat()
         )
         
+        # ============ PHASE 17: Response to User ============
+        logger.info(f"[Phase 17/17] ✅ Response Generation - Evaluation complete (took {processing_time:.2f}s)")
+        logger.info(f"[Phase 17/17] 📋 Summary: Score={obtained_marks}/{request.max_marks}, Grade={grade}, Confidence={confidence_result.confidence_percentage:.0f}%" if confidence_result else f"[Phase 17/17] 📋 Summary: Score={obtained_marks}/{request.max_marks}, Grade={grade}")
+        
+        # ============ SAVE TO DATABASE ============
+        try:
+            logger.info(f"[DATABASE] Saving evaluation result to database...")
+            user_id = current_user.get("user_id") if current_user else None
+            user_role = current_user.get("user_role") if current_user else None
+            
+            # Map string grade to GradeLevel enum
+            grade_enum = None
+            if grade:
+                grade_value = grade.lower()
+                if grade_value == "excellent":
+                    grade_enum = GradeLevel.EXCELLENT
+                elif grade_value == "good":
+                    grade_enum = GradeLevel.GOOD
+                elif grade_value == "average":
+                    grade_enum = GradeLevel.AVERAGE
+                elif grade_value == "poor":
+                    grade_enum = GradeLevel.POOR
+            
+            # Create database record
+            db_evaluation = Evaluation(
+                evaluation_id=request.evaluation_id,
+                student_id=user_id if user_role == "student" else None,  # Save user_id if student
+                teacher_id=user_id if user_role == "teacher" else None,  # Save user_id if teacher
+                student_answer_text=student_text,
+                question_type=DBQuestionType.DESCRIPTIVE if request.question_type.value == "descriptive" else DBQuestionType.FACTUAL if request.question_type.value == "factual" else DBQuestionType.DIAGRAM,
+                max_marks=request.max_marks,
+                obtained_marks=float(obtained_marks),
+                final_score=float(weighted_score * 100),
+                grade=grade_enum,
+                semantic_score=float(semantic_score) if semantic_score else None,
+                keyword_score=float(keyword_score) if keyword_score else None,
+                diagram_score=float(diagram_score) if request.include_diagram else None,
+                length_penalty=float(length_penalty) if length_penalty else 0.0,
+                matched_keywords=concepts.get("matched", []) if concepts else None,
+                missing_keywords=concepts.get("missing", []) if concepts else None,
+                concept_coverage=float(concept_coverage) if concept_coverage else None,
+                explanation=explanation,
+                suggestions=suggestions,
+                processing_time=float(processing_time)
+            )
+            
+            db.add(db_evaluation)
+            db.commit()
+            db.refresh(db_evaluation)
+            logger.info(f"[DATABASE] ✅ Evaluation saved successfully with ID: {db_evaluation.id}")
+        except Exception as e:
+            logger.error(f"[DATABASE] ⚠️ Failed to save evaluation to database: {e}")
+            # Continue anyway - don't fail the evaluation if database save fails
+        
         # Save result to storage
         from api.routes.results import save_result
         save_result(request.evaluation_id, result.model_dump())
@@ -887,6 +1223,37 @@ async def evaluate_answer(request: EvaluationRequest):
             status_code=500,
             detail=f"Evaluation failed: {str(e)}"
         )
+
+
+@router.post("/test", response_model=EvaluationResult)
+async def test_endpoint():
+    """
+    Quick test endpoint to verify API is responding without loading ML models.
+    Returns dummy evaluation result for connectivity testing.
+    """
+    return EvaluationResult(
+        success=True,
+        evaluation_id=str(uuid.uuid4()),
+        final_score=75.0,
+        max_marks=10,
+        obtained_marks=7.5,
+        grade=GradeLevel.GOOD,
+        score_breakdown=ScoreBreakdown(
+            semantic_score=0.75,
+            keyword_score=0.80,
+            length_penalty=0.0,
+            weighted_score=0.75
+        ),
+        concepts=ConceptMatch(
+            matched=["concept1", "concept2"],
+            missing=["concept3"],
+            coverage_percentage=66.67
+        ),
+        explanation="Test endpoint working!",
+        suggestions=["This is a test response"],
+        processing_time=0.01,
+        timestamp=datetime.now().isoformat()
+    )
 
 
 @router.post("/text", response_model=EvaluationResult)
@@ -1802,65 +2169,153 @@ async def evaluate_multi_question(request: MultiQuestionRequest):
         answered = 0
         unanswered = 0
 
-        for pair in pairs:
-            res = _evaluate_single_question_sync(
-                model_answer=pair["model_answer"],
-                student_answer=pair["student_answer"],
-                question_type=question_type_str,
-                max_marks=pair["max_marks"],
-                rubric_config=request.rubric_config,
-            )
+        for i, pair in enumerate(pairs):
+            try:
+                res = _evaluate_single_question_sync(
+                    model_answer=pair["model_answer"],
+                    student_answer=pair["student_answer"],
+                    question_type=question_type_str,
+                    max_marks=pair["max_marks"],
+                    rubric_config=request.rubric_config,
+                )
 
-            pqr = PerQuestionResult(
-                question_number=pair["question_number"],
-                question_text=pair.get("question_text"),
-                model_answer_preview=pair["model_answer"][:200],
-                student_answer_preview=pair["student_answer"][:200],
-                max_marks=pair["max_marks"],
-                obtained_marks=res["obtained_marks"],
-                final_score=res["final_score"],
-                grade=res["grade"],
-                score_breakdown=ScoreBreakdown(**res["score_breakdown"]),
-                concepts=ConceptMatch(**{
-                    k: v for k, v in res["concepts"].items()
-                    if k in ConceptMatch.model_fields
-                }),
-                explanation=res["explanation"],
-                suggestions=res["suggestions"],
-                is_unanswered=res["is_unanswered"],
-            )
-            per_question_results.append(pqr)
-            total_obtained += res["obtained_marks"]
-            total_max += pair["max_marks"]
-            if res["is_unanswered"]:
+                pqr = PerQuestionResult(
+                    question_number=pair["question_number"],
+                    question_text=pair.get("question_text"),
+                    model_answer_preview=pair["model_answer"][:200],
+                    student_answer_preview=pair["student_answer"][:200],
+                    max_marks=pair["max_marks"],
+                    obtained_marks=res["obtained_marks"],
+                    final_score=res["final_score"],
+                    grade=res["grade"],
+                    score_breakdown=ScoreBreakdown(**_sanitize_numpy(res["score_breakdown"])),
+                    concepts=ConceptMatch(**{
+                        k: _sanitize_numpy(v) for k, v in res["concepts"].items()
+                        if k in ConceptMatch.model_fields
+                    }),
+                    explanation=res["explanation"],
+                    suggestions=res["suggestions"],
+                    is_unanswered=res["is_unanswered"],
+                )
+                per_question_results.append(pqr)
+                total_obtained += res["obtained_marks"]
+                total_max += pair["max_marks"]
+                if res["is_unanswered"]:
+                    unanswered += 1
+                else:
+                    answered += 1
+                    
+            except Exception as q_err:
+                logger.error(f"[MULTI-QUESTION] Question {i+1} evaluation error: {q_err}", exc_info=True)
+                # Create a fallback result with error info
+                pqr = PerQuestionResult(
+                    question_number=pair["question_number"],
+                    question_text=pair.get("question_text"),
+                    model_answer_preview=pair["model_answer"][:200],
+                    student_answer_preview=pair["student_answer"][:200],
+                    max_marks=pair["max_marks"],
+                    obtained_marks=0,
+                    final_score=0,
+                    grade=GradeLevel.POOR,
+                    score_breakdown=ScoreBreakdown(
+                        semantic_score=0.0,
+                        keyword_score=0.0,
+                        weighted_score=0.0,
+                    ),
+                    concepts=ConceptMatch(matched=[], missing=[], coverage_percentage=0),
+                    explanation=f"Evaluation error: {str(q_err)[:100]}",
+                    suggestions=["Please try evaluating this question again"],
+                    is_unanswered=True,
+                )
+                per_question_results.append(pqr)
+                total_max += pair["max_marks"]
                 unanswered += 1
-            else:
-                answered += 1
 
         overall_pct = round((total_obtained / max(total_max, 1)) * 100, 2)
         overall_grade = classify_grade(total_obtained / max(total_max, 1))
 
         processing_time = round(time.time() - start_time, 3)
+        
+        # Generate overall explanation and suggestions from per-question results
+        overall_explanation = ""
+        overall_suggestions = set()
+        
+        answered_results = [pq for pq in per_question_results if not pq.is_unanswered]
+        if answered_results:
+            # Overall explanation based on grade
+            if overall_grade == GradeLevel.EXCELLENT:
+                overall_explanation = f"Excellent performance! You scored {overall_pct:.1f}% with strong understanding across all questions."
+            elif overall_grade == GradeLevel.GOOD:
+                overall_explanation = f"Good effort! You scored {overall_pct:.1f}%. Review the suggestions below to improve further."
+            elif overall_grade == GradeLevel.AVERAGE:
+                overall_explanation = f"You scored {overall_pct:.1f}%. Focus on the key concepts mentioned below to improve your understanding."
+            else:  # POOR
+                overall_explanation = f"Your score is {overall_pct:.1f}%. Please review the fundamental concepts and focus on the main topics."
+            
+            # Aggregate unique non-emoji suggestions
+            for pq in answered_results:
+                if pq.suggestions:
+                    for sugg in pq.suggestions:
+                        # Skip emoji-heavy suggestions, keep practical ones
+                        if not sugg.startswith('📊') and not sugg.startswith('⚠️') and not sugg.startswith('🔍'):
+                            overall_suggestions.add(sugg[:80])  # Limit length
+        else:
+            overall_explanation = "No answers were provided for evaluation."
+        
+        # Add grade-specific suggestions if no other suggestions exist
+        if not overall_suggestions:
+            if overall_grade == GradeLevel.POOR:
+                overall_suggestions.add("Review the core concepts from your study material")
+                overall_suggestions.add("Attempt all questions with thoughtful answers")
+            elif overall_grade == GradeLevel.AVERAGE:
+                overall_suggestions.add("Focus on technical terminology to strengthen your answer")
+                overall_suggestions.add("Improve answer structure with clear logical flow")
 
-        result = MultiQuestionResult(
-            success=True,
-            evaluation_id=evaluation_id,
-            total_questions=len(per_question_results),
-            answered_questions=answered,
-            unanswered_questions=unanswered,
-            total_max_marks=total_max,
-            total_obtained_marks=round(total_obtained, 2),
-            overall_percentage=overall_pct,
-            overall_grade=overall_grade,
-            per_question=per_question_results,
-            segmentation_info=seg_info if request.model_answer else None,
-            processing_time=processing_time,
-            timestamp=datetime.now().isoformat(),
-        )
+        try:
+            result = MultiQuestionResult(
+                success=True,
+                evaluation_id=evaluation_id,
+                total_questions=len(per_question_results),
+                answered_questions=answered,
+                unanswered_questions=unanswered,
+                total_max_marks=total_max,
+                total_obtained_marks=round(total_obtained, 2),
+                overall_percentage=overall_pct,
+                overall_grade=overall_grade,
+                per_question=per_question_results,
+                explanation=overall_explanation,
+                suggestions=list(overall_suggestions),
+                segmentation_info=seg_info if request.model_answer else None,
+                processing_time=processing_time,
+                timestamp=datetime.now().isoformat(),
+            )
+        except Exception as result_err:
+            logger.error(f"[MULTI-QUESTION] Failed to build result object: {result_err}", exc_info=True)
+            # Return minimal result
+            result = MultiQuestionResult(
+                success=False,
+                evaluation_id=evaluation_id,
+                total_questions=len(per_question_results),
+                answered_questions=answered,
+                unanswered_questions=unanswered,
+                total_max_marks=total_max,
+                total_obtained_marks=round(total_obtained, 2),
+                overall_percentage=overall_pct,
+                overall_grade=overall_grade,
+                per_question=[],  # Empty per_question to avoid serialization error
+                explanation="Evaluation completed with errors",
+                suggestions=["Please review the individual question results for details"],
+                segmentation_info=None,
+                processing_time=processing_time,
+                timestamp=datetime.now().isoformat(),
+            )
 
         # Save result
-        from api.routes.results import save_result
-        save_result(evaluation_id, result.model_dump())
+        try:
+            from api.routes.results import save_result
+            save_result(evaluation_id, result.model_dump())
+        except Exception as save_err:
+            logger.warning(f"[MULTI-QUESTION] Failed to save result: {save_err}")
 
         return result
 

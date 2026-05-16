@@ -2,9 +2,10 @@
  * Dashboard Page
  * ===============
  * Main landing page with statistics and quick actions.
+ * Fetches dashboard metrics from API - shows ZERO values on first visit.
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -22,6 +23,9 @@ import {
   ListItemAvatar,
   ListItemText,
   IconButton,
+  CircularProgress,
+  Alert,
+  Skeleton,
 } from '@mui/material';
 import {
   Assignment as AssignmentIcon,
@@ -32,78 +36,219 @@ import {
   School as SchoolIcon,
   EmojiEvents as TrophyIcon,
   AutoAwesome as SparkleIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 
 // Animated card wrapper
 const MotionCard = motion(Card);
 
-// Stats data (would come from API in production)
-const stats = [
-  {
-    title: 'Total Evaluations',
-    value: '1,234',
-    change: '+12%',
-    icon: <AssignmentIcon />,
-    color: '#1565c0',
-    bgColor: 'rgba(21, 101, 192, 0.1)',
-  },
-  {
-    title: 'Average Score',
-    value: '78.5%',
-    change: '+5%',
-    icon: <TrendingUpIcon />,
-    color: '#00897b',
-    bgColor: 'rgba(0, 137, 123, 0.1)',
-  },
-  {
-    title: 'Excellent Grades',
-    value: '342',
-    change: '+18%',
-    icon: <CheckCircleIcon />,
-    color: '#2e7d32',
-    bgColor: 'rgba(46, 125, 50, 0.1)',
-  },
-  {
-    title: 'Pending Review',
-    value: '23',
-    change: '-3',
-    icon: <ScheduleIcon />,
-    color: '#f9a825',
-    bgColor: 'rgba(249, 168, 37, 0.1)',
-  },
-];
-
-// Recent evaluations (would come from API)
-const recentEvaluations = [
-  { id: 1, student: 'John Doe', subject: 'Biology', score: 92, grade: 'Excellent', time: '2 hours ago' },
-  { id: 2, student: 'Jane Smith', subject: 'Physics', score: 78, grade: 'Good', time: '3 hours ago' },
-  { id: 3, student: 'Bob Wilson', subject: 'Chemistry', score: 65, grade: 'Average', time: '5 hours ago' },
-  { id: 4, student: 'Alice Brown', subject: 'Biology', score: 88, grade: 'Excellent', time: '1 day ago' },
-];
-
 const gradeColors = {
-  Excellent: 'success',
-  Good: 'primary',
-  Average: 'warning',
-  Poor: 'error',
+  excellent: 'success',
+  good: 'primary',
+  average: 'warning',
+  poor: 'error',
 };
 
 function Dashboard() {
   const navigate = useNavigate();
+  const [dashboardData, setDashboardData] = useState(null);
+  const [recentEvaluations, setRecentEvaluations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [evaluationsLoading, setEvaluationsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [isFirstVisit, setIsFirstVisit] = useState(false);
+
+  // Fetch dashboard data from API
+  useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        setLoading(true);
+        const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+        
+        const response = await fetch('http://localhost:8000/api/v1/dashboard/', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch dashboard: ${response.status}`);
+        }
+
+        const result = await response.json();
+        setDashboardData(result.data);
+        setIsFirstVisit(result.is_first_visit);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching dashboard:', err);
+        setError(err.message);
+        // Set default values on error
+        setDashboardData({
+          user_role: 'teacher',
+          teacher_metrics: {
+            evaluations_created: 0,
+            average_evaluation_score: 0.0,
+            classes_managed: 0,
+            students_taught: 0,
+          },
+          engagement_metrics: {
+            documents_uploaded: 0,
+            grievances_filed: 0,
+            community_messages_sent: 0,
+          }
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboard();
+  }, []);
+
+  // Fetch recent evaluations from API
+  useEffect(() => {
+    const fetchRecentEvaluations = async () => {
+      try {
+        setEvaluationsLoading(true);
+        const token = localStorage.getItem('token') || localStorage.getItem('access_token');
+        
+        const response = await fetch('http://localhost:8000/api/v1/dashboard/recent-evaluations?limit=10', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          console.warn(`Failed to fetch recent evaluations: ${response.status}`);
+          setRecentEvaluations([]);
+          return;
+        }
+
+        const result = await response.json();
+        if (result.data && Array.isArray(result.data)) {
+          // Transform API data to match UI format
+          const transformed = result.data.map(eval_item => ({
+            id: eval_item.evaluation_id,
+            student: eval_item.student_name,
+            subject: eval_item.subject,
+            score: eval_item.score,
+            grade: eval_item.grade.charAt(0).toUpperCase() + eval_item.grade.slice(1),
+            time: eval_item.time_ago,
+          }));
+          setRecentEvaluations(transformed);
+        }
+      } catch (err) {
+        console.error('Error fetching recent evaluations:', err);
+        setRecentEvaluations([]);
+      } finally {
+        setEvaluationsLoading(false);
+      }
+    };
+
+    fetchRecentEvaluations();
+  }, []);
+
+  // Build stats array from dashboard data
+  const buildStats = () => {
+    if (!dashboardData || !dashboardData.teacher_metrics) {
+      return [];
+    }
+
+    const tm = dashboardData.teacher_metrics;
+    
+    return [
+      {
+        title: 'Total Evaluations',
+        value: tm.evaluations_created?.toLocaleString() || '0',
+        change: isFirstVisit ? 'New' : '+0%',
+        icon: <AssignmentIcon />,
+        color: '#1565c0',
+        bgColor: 'rgba(21, 101, 192, 0.1)',
+      },
+      {
+        title: 'Average Score',
+        value: `${tm.average_evaluation_score?.toFixed(1) || '0.0'}%`,
+        change: isFirstVisit ? 'New' : '+0%',
+        icon: <TrendingUpIcon />,
+        color: '#00897b',
+        bgColor: 'rgba(0, 137, 123, 0.1)',
+      },
+      {
+        title: 'Classes Managed',
+        value: tm.classes_managed?.toLocaleString() || '0',
+        change: isFirstVisit ? 'New' : '+0%',
+        icon: <CheckCircleIcon />,
+        color: '#2e7d32',
+        bgColor: 'rgba(46, 125, 50, 0.1)',
+      },
+      {
+        title: 'Students Taught',
+        value: tm.students_taught?.toLocaleString() || '0',
+        change: isFirstVisit ? 'New' : '+0%',
+        icon: <ScheduleIcon />,
+        color: '#f9a825',
+        bgColor: 'rgba(249, 168, 37, 0.1)',
+      },
+    ];
+  };
+
+  const stats = buildStats();
 
   return (
     <Box>
+      {/* First Visit Welcome Banner */}
+      {isFirstVisit && (
+        <Alert 
+          severity="info" 
+          sx={{ mb: 3, borderRadius: 2 }}
+          icon={<SparkleIcon />}
+        >
+          <Typography variant="subtitle2" fontWeight={600}>
+            Welcome to your Dashboard! 🎉
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            All your metrics are starting at zero. As you create evaluations, upload documents, and interact with the platform, your dashboard will update in real-time to show your progress.
+          </Typography>
+        </Alert>
+      )}
+
+      {/* Error Display */}
+      {error && !dashboardData && (
+        <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={600}>
+            Error loading dashboard
+          </Typography>
+          <Typography variant="body2">{error}</Typography>
+        </Alert>
+      )}
+
       {/* Welcome Section */}
       <Box sx={{ mb: { xs: 2, md: 4 } }}>
         <Typography variant="h4" fontWeight={700} gutterBottom sx={{ fontSize: { xs: '1.5rem', md: '2rem' } }}>
           Welcome back, Teacher! 👋
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ fontSize: { xs: '0.875rem', md: '1rem' } }}>
-          Here's what's happening with your evaluations today.
+          {isFirstVisit 
+            ? 'All your metrics start at zero - begin creating evaluations to see them update!' 
+            : "Here's what's happening with your evaluations today."}
         </Typography>
       </Box>
 
+      {/* Loading State */}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 10 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {/* Dashboard Content - Only show when not loading */}
+      {!loading && (
+        <>
       {/* Quick Action Banner */}
       <MotionCard
         initial={{ opacity: 0, y: 20 }}
@@ -167,7 +312,7 @@ function Dashboard() {
         </CardContent>
       </MotionCard>
 
-      {/* Statistics Cards */}
+      {/* Statistics Cards - From API */}
       <Grid container spacing={{ xs: 2, md: 3 }} sx={{ mb: { xs: 2, md: 4 } }}>
         {stats.map((stat, index) => (
           <Grid item xs={6} sm={6} md={3} key={stat.title}>
@@ -184,6 +329,8 @@ function Dashboard() {
                   transform: 'translateY(-4px)',
                   boxShadow: '0 8px 30px rgba(0, 0, 0, 0.12)',
                 },
+                backgroundColor: isFirstVisit ? 'rgba(33, 150, 243, 0.05)' : 'inherit',
+                border: isFirstVisit ? '2px dashed #2196f3' : 'none',
               }}
             >
               <CardContent sx={{ p: { xs: 2, md: 3 } }}>
@@ -206,16 +353,21 @@ function Dashboard() {
                   <Chip
                     label={stat.change}
                     size="small"
-                    color={stat.change.startsWith('+') ? 'success' : 'warning'}
+                    color={stat.change === 'New' ? 'primary' : (stat.change.startsWith('+') ? 'success' : 'warning')}
                     sx={{ fontWeight: 500, fontSize: { xs: '0.6rem', md: '0.75rem' }, height: { xs: 20, md: 24 }, alignSelf: { xs: 'flex-start', sm: 'center' } }}
                   />
                 </Box>
-                <Typography variant="h4" fontWeight={700} sx={{ fontSize: { xs: '1.25rem', md: '2rem' } }}>
+                <Typography variant="h4" fontWeight={700} sx={{ fontSize: { xs: '1.25rem', md: '2rem' }, color: isFirstVisit ? 'primary.main' : 'inherit' }}>
                   {stat.value}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', md: '0.875rem' } }}>
                   {stat.title}
                 </Typography>
+                {isFirstVisit && stat.value === '0' && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'primary.main', fontStyle: 'italic' }}>
+                    ← Starting from zero
+                  </Typography>
+                )}
               </CardContent>
             </MotionCard>
           </Grid>
@@ -245,6 +397,22 @@ function Dashboard() {
                   View All
                 </Button>
               </Box>
+              {evaluationsLoading ? (
+                <Box sx={{ p: { xs: 2, md: 3 } }}>
+                  {[1, 2, 3].map((item) => (
+                    <Box key={item} sx={{ mb: 2 }}>
+                      <Skeleton variant="text" height={40} />
+                      <Skeleton variant="text" height={20} sx={{ mt: 1 }} width="60%" />
+                    </Box>
+                  ))}
+                </Box>
+              ) : recentEvaluations.length === 0 ? (
+                <Box sx={{ p: { xs: 2, md: 3 }, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">
+                    No evaluations yet. Start by uploading student answers! 📝
+                  </Typography>
+                </Box>
+              ) : (
               <List sx={{ p: 0 }}>
                 {recentEvaluations.map((evaluation, index) => (
                   <ListItem
@@ -255,6 +423,10 @@ function Dashboard() {
                       py: { xs: 1.5, md: 2 },
                       px: { xs: 2, md: 3 },
                       flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                      cursor: 'pointer',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
                     }}
                     secondaryAction={
                       <IconButton edge="end" onClick={() => navigate(`/results/${evaluation.id}`)} size="small">
@@ -276,7 +448,7 @@ function Dashboard() {
                           <Chip
                             label={evaluation.grade}
                             size="small"
-                            color={gradeColors[evaluation.grade]}
+                            color={gradeColors[evaluation.grade.toLowerCase()]}
                             sx={{ fontWeight: 500, fontSize: { xs: '0.6rem', md: '0.75rem' }, height: { xs: 18, md: 24 } }}
                           />
                         </Box>
@@ -289,12 +461,13 @@ function Dashboard() {
                     />
                     <Box sx={{ mr: { xs: 3, md: 4 }, textAlign: 'right', display: { xs: 'none', sm: 'block' } }}>
                       <Typography variant="h6" fontWeight={600} color="primary.main" sx={{ fontSize: { xs: '1rem', md: '1.25rem' } }}>
-                        {evaluation.score}%
+                        {evaluation.score.toFixed(1)}%
                       </Typography>
                     </Box>
                   </ListItem>
                 ))}
               </List>
+              )}
             </CardContent>
           </Card>
         </Grid>
@@ -376,6 +549,8 @@ function Dashboard() {
           </Card>
         </Grid>
       </Grid>
+        </>
+      )}
     </Box>
   );
 }

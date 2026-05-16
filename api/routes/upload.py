@@ -8,6 +8,7 @@ Supports PDF and image files with validation and preprocessing.
 import os
 import uuid
 import shutil
+import logging
 from datetime import datetime
 from typing import Optional, List
 from pathlib import Path
@@ -18,6 +19,8 @@ from pydantic import BaseModel, Field
 import aiofiles
 
 from config.settings import settings
+
+logger = logging.getLogger("AssessIQ.Upload")
 
 router = APIRouter()
 
@@ -85,13 +88,13 @@ async def save_upload_file(upload_file: UploadFile, destination: str) -> int:
 # ========== API Endpoints ==========
 @router.post("/", response_model=UploadResponse)
 async def upload_files(
-    background_tasks: BackgroundTasks,
     model_answer: UploadFile = File(..., description="Model answer key (image/PDF)"),
     student_answer: Optional[UploadFile] = File(None, description="Student answer sheet (image/PDF)"),
     student_text: Optional[str] = Form(None, description="Student answer as text (alternative to image)"),
     question_type: str = Form("descriptive", description="Type of question: factual, descriptive, diagram"),
     subject: Optional[str] = Form(None, description="Subject/Topic of the question"),
-    max_marks: int = Form(10, description="Maximum marks for this question")
+    max_marks: int = Form(10, description="Maximum marks for this question"),
+    ocr_engine: str = Form("easyocr", description="OCR engine for text extraction (easyocr, ensemble, tesseract, paddleocr, sarvam)")
 ):
     """
     Upload model answer and student answer for evaluation.
@@ -104,7 +107,12 @@ async def upload_files(
     5. Returns file IDs for evaluation
     
     **Supported formats:** PDF, PNG, JPG, JPEG, TIFF, BMP
+    
+    **Parameters:**
+    - ocr_engine: Which OCR engine to use for text extraction (default: easyocr)
     """
+    
+    logger.info(f"🔍 [UPLOAD] Received ocr_engine parameter: '{ocr_engine}'")
     
     # Validate at least one student answer is provided
     if student_answer is None and student_text is None:
@@ -178,6 +186,86 @@ async def upload_files(
             }
         }
         
+        # OPTIMIZATION: Extract text NOW (synchronously before returning)
+        # This GUARANTEES cache exists before evaluation starts
+        try:
+            from api.services.ocr_service import OCRService
+            from api.services.text_cleaning_service import TextCleaningService
+            
+            logger.info(f"[CACHE] Starting pre-cache extraction for {evaluation_id}...")
+            
+            # Initialize cache directory
+            os.makedirs(os.path.join(eval_dir, ".cache"), exist_ok=True)
+            
+            # Get engine string
+            ocr_engine_str = ocr_engine.value if hasattr(ocr_engine, 'value') else str(ocr_engine)
+            
+            try:
+                ocr = OCRService(engine=ocr_engine_str)
+            except ValueError:
+                logger.warning(f"[CACHE] Engine {ocr_engine_str} not available, using easyocr")
+                ocr = OCRService(engine='easyocr')
+                ocr_engine_str = 'easyocr'
+            
+            # Extract model text
+            if model_path and os.path.exists(model_path):
+                logger.info(f"[CACHE] Extracting model answer...")
+                try:
+                    model_text = ocr.extract_text(model_path, language=None)
+                    model_clean = TextCleaningService.clean_for_question_segmentation(model_text)
+                    with open(os.path.join(eval_dir, ".cache", "model_extracted.txt"), 'w', encoding='utf-8') as f:
+                        f.write(model_clean)
+                    logger.info(f"[CACHE] Model cached: {len(model_text)} -> {len(model_clean)} chars")
+                except Exception as e:
+                    # Check if it's a network error and engine is Sarvam
+                    error_str = str(e).lower()
+                    if ('connecterror' in error_str or 'getaddrinfo' in error_str or 'connection' in error_str) and ocr_engine_str == 'sarvam':
+                        logger.warning(f"[CACHE] Sarvam network error, falling back to easyocr for model")
+                        fallback_ocr = OCRService(engine='easyocr')
+                        model_text = fallback_ocr.extract_text(model_path, language=None)
+                        model_clean = TextCleaningService.clean_for_question_segmentation(model_text)
+                        with open(os.path.join(eval_dir, ".cache", "model_extracted.txt"), 'w', encoding='utf-8') as f:
+                            f.write(model_clean)
+                        logger.info(f"[CACHE] Model cached via fallback: {len(model_text)} -> {len(model_clean)} chars")
+                    else:
+                        raise
+            
+            # Extract student text
+            if student_path and os.path.exists(student_path) and not student_path.endswith('.txt'):
+                logger.info(f"[CACHE] Extracting student answer...")
+                try:
+                    student_text = ocr.extract_text(student_path, language=None)
+                    student_clean = TextCleaningService.clean_for_question_segmentation(student_text)
+                    with open(os.path.join(eval_dir, ".cache", "student_extracted.txt"), 'w', encoding='utf-8') as f:
+                        f.write(student_clean)
+                    logger.info(f"[CACHE] Student cached: {len(student_text)} -> {len(student_clean)} chars")
+                except Exception as e:
+                    # Check if it's a network error and engine is Sarvam
+                    error_str = str(e).lower()
+                    if ('connecterror' in error_str or 'getaddrinfo' in error_str or 'connection' in error_str) and ocr_engine_str == 'sarvam':
+                        logger.warning(f"[CACHE] Sarvam network error, falling back to easyocr for student")
+                        fallback_ocr = OCRService(engine='easyocr')
+                        student_text = fallback_ocr.extract_text(student_path, language=None)
+                        student_clean = TextCleaningService.clean_for_question_segmentation(student_text)
+                        with open(os.path.join(eval_dir, ".cache", "student_extracted.txt"), 'w', encoding='utf-8') as f:
+                            f.write(student_clean)
+                        logger.info(f"[CACHE] Student cached via fallback: {len(student_text)} -> {len(student_clean)} chars")
+                    else:
+                        raise
+            elif student_path and student_path.endswith('.txt'):
+                logger.info(f"[CACHE] Using text input, saving to cache...")
+                with open(student_path, 'r', encoding='utf-8') as f:
+                    student_text = f.read()
+                student_clean = TextCleaningService.clean_for_question_segmentation(student_text)
+                with open(os.path.join(eval_dir, ".cache", "student_extracted.txt"), 'w', encoding='utf-8') as f:
+                    f.write(student_clean)
+                logger.info(f"[CACHE] Text cached: {len(student_text)} -> {len(student_clean)} chars")
+            
+            logger.info(f"[CACHE] Pre-caching complete")
+            
+        except Exception as e:
+            logger.warning(f"[CACHE] Pre-caching failed (will extract during eval): {e}")
+        
         return UploadResponse(
             success=True,
             message="Files uploaded successfully. Ready for evaluation.",
@@ -187,6 +275,7 @@ async def upload_files(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Upload error: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to upload files: {str(e)}"
@@ -321,15 +410,20 @@ async def delete_evaluation_files(evaluation_id: str):
 @router.get("/{evaluation_id}/extract-text")
 async def extract_text_from_upload(evaluation_id: str, ocr_engine: str = "easyocr"):
     """
-    Extract and return OCR text from uploaded files using specified OCR engine.
+    Load cached extracted OCR text from uploaded files.
     
     Query parameters:
     - evaluation_id: The evaluation ID
-    - ocr_engine: OCR engine to use (easyocr, ensemble, tesseract, paddleocr, sarvam)
+    - ocr_engine: OCR engine to use (for reference, but uses cached text from upload)
     
-    This allows users to preview what text was extracted before evaluation.
+    This allows users to preview cached text WITHOUT re-extracting.
+    OPTIMIZATION: Always load from cache created during upload phase.
     """
+    # ========== DEBUG: Log the received parameters ==========
+    logger.info(f"🔍 [EXTRACT-TEXT] Loading cached text for eval_id: '{evaluation_id}' (engine: {ocr_engine})")
+    
     eval_dir = os.path.join(settings.UPLOAD_DIR, "evaluations", evaluation_id)
+    cache_dir = os.path.join(eval_dir, ".cache")
     
     if not os.path.exists(eval_dir):
         raise HTTPException(
@@ -338,76 +432,87 @@ async def extract_text_from_upload(evaluation_id: str, ocr_engine: str = "easyoc
         )
     
     try:
-        from api.services.ocr_service import OCRService
-        
-        # Initialize OCR service with the requested engine
-        logger.info(f"Initializing OCRService with engine: {ocr_engine}")
-        ocr = OCRService(engine=ocr_engine)
-        
         # Find files
         files = os.listdir(eval_dir)
-        model_file = next((f for f in files if f.startswith("model_")), None)
         student_file = next((f for f in files if f.startswith("student_") or f == "student_answer.txt"), None)
         
         result = {
             "evaluation_id": evaluation_id,
-            "ocr_engine": ocr_engine,
+            "ocr_engine_requested": ocr_engine,
+            "ocr_engine_used": ocr_engine,
             "model_answer": None,
-            "student_answer": None
+            "student_answer": None,
+            "note": "✅ LOADED FROM CACHE (no re-extraction)"
         }
         
-        # Extract model answer text
-        if model_file:
-            model_path = os.path.join(eval_dir, model_file)
+        # Load model answer text from cache
+        model_cache = os.path.join(cache_dir, "model_extracted.txt")
+        if os.path.exists(model_cache):
             try:
-                logger.info(f"Extracting model answer with {ocr_engine}")
-                model_text = ocr.extract_text(model_path)
+                with open(model_cache, 'r', encoding='utf-8') as f:
+                    model_text = f.read()
+                logger.info(f"✅ [EXTRACT-TEXT] Model text loaded from CACHE: {len(model_text)} chars (NO RE-EXTRACTION)")
                 result["model_answer"] = {
-                    "filename": model_file,
                     "text": model_text,
                     "char_count": len(model_text),
-                    "word_count": len(model_text.split())
+                    "word_count": len(model_text.split()),
+                    "source": "cache"
                 }
             except Exception as e:
-                logger.error(f"Model extraction failed: {e}")
+                logger.error(f"❌ [EXTRACT-TEXT] Failed to load model cache: {e}")
                 result["model_answer"] = {
-                    "filename": model_file,
-                    "error": str(e)
+                    "error": f"Could not load cached model text: {str(e)}"
                 }
+        else:
+            logger.warning(f"⚠️ [EXTRACT-TEXT] Model cache not found at {model_cache}")
+            result["model_answer"] = {
+                "error": "Model text cache not found"
+            }
         
-        # Extract student answer text
-        if student_file:
-            student_path = os.path.join(eval_dir, student_file)
+        # Load student answer text from cache
+        student_cache = os.path.join(cache_dir, "student_extracted.txt")
+        if os.path.exists(student_cache):
             try:
-                if student_file.endswith('.txt'):
-                    with open(student_path, 'r', encoding='utf-8') as f:
-                        student_text = f.read()
+                with open(student_cache, 'r', encoding='utf-8') as f:
+                    student_text = f.read()
+                
+                # Check if it was from text input
+                if student_file and student_file.endswith('.txt'):
+                    result["ocr_engine_used"] = "text_input"
+                    logger.info(f"✅ [EXTRACT-TEXT] Student text loaded from cache (TEXT INPUT): {len(student_text)} chars")
                 else:
-                    logger.info(f"Extracting student answer with {ocr_engine}")
-                    student_text = ocr.extract_text(student_path)
+                    logger.info(f"✅ [EXTRACT-TEXT] Student text loaded from CACHE: {len(student_text)} chars (NO RE-EXTRACTION)")
                 
                 result["student_answer"] = {
-                    "filename": student_file,
                     "text": student_text,
                     "char_count": len(student_text),
-                    "word_count": len(student_text.split())
+                    "word_count": len(student_text.split()),
+                    "source": "cache"
                 }
             except Exception as e:
-                logger.error(f"Student extraction failed: {e}")
+                logger.error(f"❌ [EXTRACT-TEXT] Failed to load student cache: {e}")
                 result["student_answer"] = {
-                    "filename": student_file,
-                    "error": str(e)
+                    "error": f"Could not load cached student text: {str(e)}"
                 }
+        else:
+            logger.warning(f"⚠️ [EXTRACT-TEXT] Student cache not found at {student_cache}")
+            result["student_answer"] = {
+                "error": "Student text cache not found"
+            }
         
-        logger.info(f"Text extraction completed for evaluation {evaluation_id}")
+        logger.info(f"✅ [EXTRACT-TEXT] Retrieved cached text for evaluation {evaluation_id}")
         return {
             "success": True,
             "data": result
         }
         
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
-        logger.error(f"Failed to extract text: {e}")
+        logger.error(f"Failed to load cached text: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to extract text: {str(e)}"
+            detail=f"Failed to load cached text: {str(e)}"
         )
+
