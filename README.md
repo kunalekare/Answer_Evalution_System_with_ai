@@ -457,10 +457,14 @@ _Detailed results with animated score visualization_
 
 ## 👥 Contributors
 
-| Name        | Role      | Contact             |
-| ----------- | --------- | ------------------- |
-| [Kunal Ekare] | Developer | [kunalekare02@gmail.com] |
-| [Soumya Dhole] | Full Stack Developer | [dholesm@rknec.edu] |
+| Name              | Role                    | Contact                              |
+|-------------------|-------------------------|--------------------------------------|
+| Kunal Ekare       | Developer               | kunalekare02@gmail.com               |
+| Soumya Dhole      | Full Stack Developer    | dholesm@rknec.edu                    |
+| Niraj Bhakte      | AI/ML & Project Research| bhakteniraj51@gmail.com              |
+| Shashwat Deshpande| Project Development     | shashwatdeshpande123@gmail.com       |
+| Mitesh Wani       | Project Development     | miteshwani4643@gmail.com              |
+
 ---
 
 ## 📄 License
